@@ -61,7 +61,7 @@ export class GdmApp extends LitElement {
   private sourceNode: AudioBufferSourceNode;
   private scriptProcessorNode: ScriptProcessorNode;
   private sources = new Set<AudioBufferSourceNode>();
-  private currentModelAudioChunks: Uint8Array[] = [];
+  private currentOutputTranscription: string = "";
 
   static styles = appStyles;
 
@@ -121,6 +121,7 @@ export class GdmApp extends LitElement {
         speechConfig: {
           voiceConfig: {prebuiltVoiceConfig: {voiceName: 'Orus'}},
         },
+        outputAudioTranscription: {},
       };
 
       this.currentImageIndex = 0;
@@ -146,35 +147,19 @@ export class GdmApp extends LitElement {
               return;
             }
 
-            // User's transcribed speech
-            const userTurn = serverContent.userTurn;
-            if (userTurn?.parts) {
-              const userSpeechText = userTurn.parts
-                .map((p: any) => p.text)
-                .filter(Boolean)
-                .join('');
-              if (userSpeechText) {
-                // User has spoken, a new model turn is about to begin.
-                // Clear any previously accumulated model audio chunks.
-                this.currentModelAudioChunks = [];
-              }
+            console.log('serverContent JSON:', JSON.stringify(serverContent, null, 2));
+
+            if (serverContent.outputTranscription) {
+              this.currentOutputTranscription += serverContent.outputTranscription.text;
             }
 
             const modelTurn = serverContent.modelTurn;
-
-            console.log(`modelTurn: ${modelTurn}`);
-
             if (modelTurn) {
+
               for (const part of modelTurn.parts) {
                 if (part.inlineData) {
                   // This is audio
                   const audio = part.inlineData;
-
-                  this.currentModelAudioChunks.push(decode(audio.data));
-                  console.log(
-                    'currentModelAudioChunks size: ' +
-                      this.currentModelAudioChunks.length,
-                  );
 
                   this.nextStartTime = Math.max(
                     this.nextStartTime,
@@ -200,28 +185,23 @@ export class GdmApp extends LitElement {
                   this.sources.add(source);
                 }
               }
-
-              // const executionState =
-              //   modelTurn.executionState || serverContent.executionState;
-
-              // console.log(`executionState: ${executionState}`);
-
-              // TODO: Re-enable this when it works.
-              // if (
-              //   this.currentModelAudioChunks.length > 0
-              // ) {
-              //   this.transcribeAudioAndUpdateContext();
-              // }
             }
 
-            const interrupted = serverContent.interrupted;
-            if (interrupted) {
+            if (serverContent.turnComplete) {
+              console.log("this.currentOutputTranscription: " + this.currentOutputTranscription)
+
+              this.updateContextWithAI(this.currentOutputTranscription)
+
+              this.currentOutputTranscription = "";
+            }
+
+            if (serverContent.interrupted) {
               for (const source of this.sources.values()) {
                 source.stop();
                 this.sources.delete(source);
               }
               this.nextStartTime = 0;
-              this.currentModelAudioChunks = [];
+              this.currentOutputTranscription = "";
             }
           },
           onerror: (e: ErrorEvent) => {
@@ -236,52 +216,6 @@ export class GdmApp extends LitElement {
     } catch (e) {
       console.error(e);
       this.updateError((e as Error).message);
-    }
-  }
-
-  private async transcribeAudioAndUpdateContext() {
-    const combinedLength = this.currentModelAudioChunks.reduce(
-      (acc, chunk) => acc + chunk.length,
-      0,
-    );
-    const combined = new Uint8Array(combinedLength);
-    let offset = 0;
-    for (const chunk of this.currentModelAudioChunks) {
-      combined.set(chunk, offset);
-      offset += chunk.length;
-    }
-    // Clear chunks for the next turn
-    this.currentModelAudioChunks = [];
-
-    const base64Audio = encode(combined);
-
-    try {
-      this.updateStatus('Transcribing AI response...');
-      const response = await this.client.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: {
-          parts: [
-            {text: 'Transcribe this audio.'},
-            {
-              inlineData: {
-                mimeType: 'audio/pcm;rate=24000',
-                data: base64Audio,
-              },
-            },
-          ],
-        },
-      });
-      const transcription = response.text;
-      if (transcription) {
-        console.log(`Transcription: ${transcription}`);
-        this.updateContextWithAI(transcription);
-        this.updateStatus('Transcription complete.');
-      } else {
-        this.updateStatus('Transcription returned empty.');
-      }
-    } catch (e) {
-      console.error('Transcription failed:', e);
-      this.updateError('Failed to transcribe AI response.');
     }
   }
 
