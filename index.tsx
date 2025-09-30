@@ -708,7 +708,18 @@ If the response does not mention updating the context, do not call any function.
                   alt=${currentImage.fileName}
                   class="slideshow-image" />
                 <div class="slideshow-overlay"></div>
-                <div class="slideshow-caption">${currentImage.fileName}</div>
+                <div class="slideshow-info">
+                  <div class="slideshow-caption">${currentImage.fileName}</div>
+                  <div class="slideshow-context">
+                    <p><strong>User:</strong> ${currentImage.context}</p>
+                    <p>
+                      <strong>AI:</strong>
+                      ${currentImage.aiContext === 'loading...'
+                        ? html`<span class="loader-small"></span>`
+                        : ` ${currentImage.aiContext}`}
+                    </p>
+                  </div>
+                </div>
               </div>
             `
           : ''}

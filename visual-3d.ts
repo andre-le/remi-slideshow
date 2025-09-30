@@ -242,6 +242,7 @@ export class GdmLiveAudioVisuals3D extends LitElement {
   }
 
   protected firstUpdated() {
+    // FIX: Replaced `this.renderRoot` with `this.shadowRoot!` to correctly access the component's shadow DOM.
     this.canvas = this.shadowRoot!.querySelector('canvas') as HTMLCanvasElement;
     this.init();
   }

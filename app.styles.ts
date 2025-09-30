@@ -174,16 +174,43 @@ export const appStyles = css`
     );
   }
 
-  .slideshow-caption {
+  .slideshow-info {
     position: absolute;
-    bottom: 20px;
+    bottom: calc(10vh + 160px);
     left: 20px;
     right: 20px;
-    color: rgba(255, 255, 255, 0.8);
+    background: rgba(0, 0, 0, 0.7);
+    border-radius: 8px;
+    padding: 15px;
+    pointer-events: none;
+    max-height: 25%;
+    overflow-y: auto;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(5px);
+  }
+
+  .slideshow-caption {
+    color: #a5b4fc;
+    font-size: 16px;
+    font-weight: bold;
+    margin: 0 0 10px 0;
+    padding-bottom: 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  }
+
+  .slideshow-context p {
+    margin: 5px 0;
     font-size: 14px;
-    text-align: center;
-    text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.5);
-    pointer-events: none; /* Make sure it doesn't block clicks on the container */
+    color: rgba(255, 255, 255, 0.9);
+    display: flex;
+    align-items: flex-start;
+  }
+
+  .slideshow-context strong {
+    font-weight: bold;
+    color: rgba(255, 255, 255, 0.7);
+    margin-right: 8px;
+    flex-shrink: 0;
   }
 
   .image-view {
