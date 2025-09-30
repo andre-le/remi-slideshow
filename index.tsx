@@ -50,6 +50,8 @@ export class GdmApp extends LitElement {
 
   private client: GoogleGenAI;
   private session: Session;
+  // FIX: Add sessionPromise to follow Gemini API guidelines for handling live sessions.
+  private sessionPromise: Promise<Session>;
   private inputAudioContext = new (window.AudioContext ||
     (window as any).webkitAudioContext)({sampleRate: 16000});
   private outputAudioContext = new (window.AudioContext ||
@@ -61,7 +63,7 @@ export class GdmApp extends LitElement {
   private sourceNode: AudioBufferSourceNode;
   private scriptProcessorNode: ScriptProcessorNode;
   private sources = new Set<AudioBufferSourceNode>();
-  private currentOutputTranscription: string = "";
+  private currentOutputTranscription: string = '';
 
   static styles = appStyles;
 
@@ -113,7 +115,8 @@ export class GdmApp extends LitElement {
   }
 
   private async initSession() {
-    const model = 'gemini-live-2.5-flash-preview';
+    // FIX: Use the correct model for real-time audio conversation.
+    const model = 'gemini-2.5-flash-native-audio-preview-09-2025';
 
     try {
       const config: any = {
@@ -132,7 +135,8 @@ export class GdmApp extends LitElement {
       }
 
       // Voice AI: handle the conversation with the user.
-      this.session = await this.client.live.connect({
+      // FIX: Use a session promise to prevent race conditions and follow SDK best practices.
+      this.sessionPromise = this.client.live.connect({
         model: model,
         callbacks: {
           onopen: () => {
@@ -147,15 +151,18 @@ export class GdmApp extends LitElement {
               return;
             }
 
-            console.log('serverContent JSON:', JSON.stringify(serverContent, null, 2));
+            console.log(
+              'serverContent JSON:',
+              JSON.stringify(serverContent, null, 2),
+            );
 
             if (serverContent.outputTranscription) {
-              this.currentOutputTranscription += serverContent.outputTranscription.text;
+              this.currentOutputTranscription +=
+                serverContent.outputTranscription.text;
             }
 
             const modelTurn = serverContent.modelTurn;
             if (modelTurn) {
-
               for (const part of modelTurn.parts) {
                 if (part.inlineData) {
                   // This is audio
@@ -188,11 +195,14 @@ export class GdmApp extends LitElement {
             }
 
             if (serverContent.turnComplete) {
-              console.log("this.currentOutputTranscription: " + this.currentOutputTranscription)
+              console.log(
+                'this.currentOutputTranscription: ' +
+                  this.currentOutputTranscription,
+              );
 
-              this.updateContextWithAI(this.currentOutputTranscription)
+              this.updateContextWithAI(this.currentOutputTranscription);
 
-              this.currentOutputTranscription = "";
+              this.currentOutputTranscription = '';
             }
 
             if (serverContent.interrupted) {
@@ -201,7 +211,7 @@ export class GdmApp extends LitElement {
                 this.sources.delete(source);
               }
               this.nextStartTime = 0;
-              this.currentOutputTranscription = "";
+              this.currentOutputTranscription = '';
             }
           },
           onerror: (e: ErrorEvent) => {
@@ -213,6 +223,7 @@ export class GdmApp extends LitElement {
         },
         config: config,
       });
+      this.session = await this.sessionPromise;
     } catch (e) {
       console.error(e);
       this.updateError((e as Error).message);
@@ -248,7 +259,7 @@ export class GdmApp extends LitElement {
         this.inputAudioContext.createMediaStreamSource(this.mediaStream);
       this.sourceNode.connect(this.inputNode);
 
-      const bufferSize = 256;
+      const bufferSize = 4096;
       this.scriptProcessorNode = this.inputAudioContext.createScriptProcessor(
         bufferSize,
         1,
@@ -261,7 +272,21 @@ export class GdmApp extends LitElement {
         const inputBuffer = audioProcessingEvent.inputBuffer;
         const pcmData = inputBuffer.getChannelData(0);
 
-        this.session.sendRealtimeInput({media: createBlob(pcmData)});
+        // Do not send empty audio chunks.
+        if (pcmData.length === 0) {
+          return;
+        }
+
+        const blob = createBlob(pcmData);
+        // If blob creation results in empty data, do not send.
+        if (!blob.data) {
+          return;
+        }
+
+        // FIX: Use the session promise to send data, preventing stale closures.
+        this.sessionPromise.then((session) => {
+          session.sendRealtimeInput({media: blob});
+        });
       };
 
       this.sourceNode.connect(this.scriptProcessorNode);
@@ -322,42 +347,41 @@ export class GdmApp extends LitElement {
     );
     const imageFiles = fileList.filter((f) => f.type.startsWith('image/'));
 
-    if (!contextFile) {
-      this.imageError = 'Error: context.json file not found.';
-      this.isProcessingFiles = false;
-      return;
-    }
-
     if (imageFiles.length === 0) {
       this.imageError = 'Error: No image files found.';
       this.isProcessingFiles = false;
+      target.value = ''; // Clear input
       return;
     }
 
     try {
-      const contextJson = await contextFile.text();
-      const contextData: {
+      let contextData: {
         biography: string;
         photos: {fileName: string; context: string}[];
-      } = JSON.parse(contextJson);
-
-      this.biography = contextData.biography || '';
-      const contexts = contextData.photos;
-
-      if (!contexts || !Array.isArray(contexts)) {
-        throw new Error(
-          'Invalid context.json format: "photos" array not found.',
-        );
+      } = {biography: '', photos: []};
+      if (contextFile) {
+        try {
+          const contextJson = await contextFile.text();
+          const parsedData = JSON.parse(contextJson);
+          contextData.biography = parsedData.biography || '';
+          contextData.photos =
+            parsedData.photos && Array.isArray(parsedData.photos)
+              ? parsedData.photos
+              : [];
+        } catch (err) {
+          this.imageError = `Warning: Could not parse context.json. Proceeding without context. Error: ${
+            (err as Error).message
+          }`;
+          console.error('Error parsing context.json:', err);
+        }
       }
 
+      this.biography = contextData.biography;
+      const contexts = contextData.photos;
+
       const fileReadPromises = imageFiles.map((file) => {
-        return new Promise<ImageInfo | null>((resolve, reject) => {
+        return new Promise<ImageInfo>((resolve, reject) => {
           const contextEntry = contexts.find((c) => c.fileName === file.name);
-          if (!contextEntry) {
-            console.warn(`No context found for ${file.name}, skipping.`);
-            resolve(null);
-            return;
-          }
 
           const reader = new FileReader();
           reader.onloadend = () => {
@@ -366,8 +390,8 @@ export class GdmApp extends LitElement {
               fileName: file.name,
               mimeType: file.type,
               base64: base64String,
-              context: contextEntry.context,
-              aiContext: 'loading...', // Set loading state
+              context: contextEntry?.context || '', // Default to empty string
+              aiContext: 'loading...',
               url: URL.createObjectURL(file),
             });
           };
@@ -376,16 +400,7 @@ export class GdmApp extends LitElement {
         });
       });
 
-      const readImageInfos = (await Promise.all(fileReadPromises)).filter(
-        (r): r is ImageInfo => r !== null,
-      );
-
-      if (readImageInfos.length === 0) {
-        this.imageError = 'No images matched the entries in context.json.';
-        this.isProcessingFiles = false;
-        return;
-      }
-
+      const readImageInfos = await Promise.all(fileReadPromises);
       this.imageInfos = readImageInfos;
       this.isProcessingFiles = false; // Initial file processing is done
 
@@ -467,7 +482,10 @@ export class GdmApp extends LitElement {
     if (currentImage && this.session) {
       const message = `The photo "${currentImage.fileName}" is now being displayed on the screen.`;
       console.log(`Sending to AI: ${message}`);
-      this.session.sendClientContent({turns: message});
+      // FIX: Use `sendRealtimeInput` instead of the incorrect `sendClientContent` and use the session promise.
+      this.sessionPromise.then((session) => {
+        session.sendRealtimeInput({text: message});
+      });
     }
   }
 
@@ -593,9 +611,8 @@ If the response does not mention updating the context, do not call any function.
         },
       });
 
-      const call = response.candidates?.[0]?.content?.parts.find(
-        (part) => part.functionCall,
-      )?.functionCall;
+      // FIX: Use the recommended `functionCalls` property to get the function call.
+      const call = response.functionCalls?.[0];
 
       if (call) {
         if (call.name === 'updateImageContext') {
@@ -610,6 +627,15 @@ If the response does not mention updating the context, do not call any function.
     } catch (e) {
       console.error('Context updater AI failed:', e);
     }
+  }
+
+  private formatFileName(fileName: string): string {
+    if (!fileName) return '';
+    const nameWithoutExtension = fileName.replace(/\.[^/.]+$/, '');
+    return (
+      nameWithoutExtension.charAt(0).toUpperCase() +
+      nameWithoutExtension.slice(1)
+    );
   }
 
   render() {
@@ -709,9 +735,15 @@ If the response does not mention updating the context, do not call any function.
                   class="slideshow-image" />
                 <div class="slideshow-overlay"></div>
                 <div class="slideshow-info">
-                  <div class="slideshow-caption">${currentImage.fileName}</div>
+                  <div class="slideshow-caption">
+                    ${this.formatFileName(currentImage.fileName)}
+                  </div>
                   <div class="slideshow-context">
-                    <p><strong>User:</strong> ${currentImage.context}</p>
+                    ${currentImage.context
+                      ? html`<p>
+                          <strong>User:</strong> ${currentImage.context}
+                        </p>`
+                      : ''}
                     <p>
                       <strong>AI:</strong>
                       ${currentImage.aiContext === 'loading...'
@@ -748,13 +780,13 @@ If the response does not mention updating the context, do not call any function.
                   (info) => html`
                     <div class="gallery-item">
                       <img src=${info.url} alt=${info.fileName} />
-                      <p>${info.fileName}</p>
+                      <p>${this.formatFileName(info.fileName)}</p>
                     </div>
                   `,
                 )}
               </div>`
             : html`<p>
-                Click or drop images and a context.json file here
+                Click or drop images here.<br />(context.json is optional)
               </p>`}
         </label>
 
@@ -766,10 +798,12 @@ If the response does not mention updating the context, do not call any function.
                   ${this.imageInfos.map(
                     (info) => html`
                       <div class="context-item">
-                        <strong>${info.fileName}</strong>
-                        <p class="user-context">
-                          <em>User:</em> ${info.context}
-                        </p>
+                        <strong>${this.formatFileName(info.fileName)}</strong>
+                        ${info.context
+                          ? html`<p class="user-context">
+                              <em>User:</em> ${info.context}
+                            </p>`
+                          : ''}
                         <p class="ai-context">
                           <em>AI:</em>
                           ${info.aiContext === 'loading...'
