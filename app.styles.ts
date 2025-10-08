@@ -189,16 +189,64 @@ export const appStyles = css`
     backdrop-filter: blur(5px);
   }
 
-  .slideshow-caption {
+  .context-frame {
+    position: absolute;
+    bottom: 20px;
+    right: 20px;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    max-width: 340px;
+  }
+
+  .context-content-visible {
+    background: rgba(0, 0, 0, 0.7);
+    border-radius: 8px;
+    padding: 15px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(5px);
+    margin-top: 10px;
+    max-height: 400px; /* Adjust as needed */
+    overflow-y: auto;
+  }
+
+  .gear-button {
+    background: rgba(0, 0, 0, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 50%;
+    width: 44px;
+    height: 44px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+    margin-bottom: 10px;
+    transition: background-color 0.3s ease;
+
+    span {
+      color: #ffffff;
+      font-size: 18px;
+    }
+  }
+
+  .gear-button:hover {
+    background: rgba(0, 0, 0, 0.9);
+  }
+
+  .context-filename {
     color: #a5b4fc;
     font-size: 16px;
     font-weight: bold;
     margin: 0 0 10px 0;
     padding-bottom: 10px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+    width: 300px;
+    box-sizing: border-box;
+    text-align: right;
   }
 
-  .slideshow-context p {
+  .context-content-visible p {
     margin: 5px 0;
     font-size: 14px;
     color: rgba(255, 255, 255, 0.9);
@@ -206,7 +254,7 @@ export const appStyles = css`
     align-items: flex-start;
   }
 
-  .slideshow-context strong {
+  .context-content-visible strong {
     font-weight: bold;
     color: rgba(255, 255, 255, 0.7);
     margin-right: 8px;
@@ -344,6 +392,13 @@ export const appStyles = css`
     font-weight: bold;
     color: rgba(255, 255, 255, 0.6);
     margin-right: 5px;
+  }
+
+  .apply-context-message {
+    color: #a5b4fc;
+    font-size: 14px;
+    text-align: center;
+    margin: 10px 0;
   }
 
   textarea {
