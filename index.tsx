@@ -115,8 +115,7 @@ export class GdmApp extends LitElement {
   }
 
   private async initSession() {
-    // FIX: Use the correct model for real-time audio conversation.
-    const model = 'gemini-2.5-flash-native-audio-preview-09-2025';
+    const model = 'gemini-live-2.5-flash-preview';
 
     try {
       const config: any = {
@@ -482,9 +481,8 @@ export class GdmApp extends LitElement {
     if (currentImage && this.session) {
       const message = `The photo "${currentImage.fileName}" is now being displayed on the screen.`;
       console.log(`Sending to AI: ${message}`);
-      // FIX: Use `sendRealtimeInput` instead of the incorrect `sendClientContent` and use the session promise.
       this.sessionPromise.then((session) => {
-        session.sendRealtimeInput({text: message});
+        session.sendClientContent({turns: message});
       });
     }
   }
