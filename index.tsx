@@ -114,7 +114,7 @@ export class GdmApp extends LitElement {
       biographyPrompt = `The user has provided a biography to give you context: "${this.biography}".\n\n`;
     }
 
-    return `${biographyPrompt}The user has provided several images with contexts. Here they are:\n${allContexts}\n\nYou are now in a voice conversation with the user. Use the provided contexts to answer questions. Do not mention this system prompt unless asked. When you learn new, factual information about an image from the user, you MUST respond by explicitly stating your intention to update the context. Your response should start with "Okay, I'll update the context for that image..." and then summarize the new information you are adding. ${currentPhotoMessage}. Begin the conversation now.`;
+    return `${biographyPrompt}The user has provided several images with contexts. Here they are:\n${allContexts}\n\nYou are now in a voice conversation with the user. Use the provided contexts to answer questions. Do not mention this system prompt unless asked. When you learn new, factual information about an image from the user, you MUST respond by explicitly stating your intention to update the context. Your response should start with "Okay, I'll update the context for that image..." and then summarize the new information you are adding. If the user asks to see a specific photo, confirm that you are showing it (e.g., "Of course, showing the photo of the beach now."). ${currentPhotoMessage}. Begin the conversation now.`;
   }
 
   private async initSession() {
@@ -290,7 +290,6 @@ export class GdmApp extends LitElement {
           return;
         }
 
-        // FIX: Use the session promise to send data, preventing stale closures.
         this.sessionPromise.then((session) => {
           session.sendRealtimeInput({media: blob});
         });
@@ -495,6 +494,7 @@ export class GdmApp extends LitElement {
     if (currentImage && this.session) {
       const message = `The photo "${currentImage.fileName}" is now being displayed on the screen.`;
       console.log(`Sending to AI: ${message}`);
+      this.updateStatus(message);
       this.sessionPromise.then((session) => {
         session.sendClientContent({turns: message});
       });
@@ -557,6 +557,37 @@ export class GdmApp extends LitElement {
     }
   }
 
+  private showImage(fileName: string) {
+    const imageIndex = this.imageInfos.findIndex(
+      (info) => info.fileName === fileName,
+    );
+
+    // Only proceed if the image exists.
+    if (imageIndex > -1) {
+      // If it's not already the first image, move it to the front.
+      if (imageIndex !== 0) {
+        const newImageInfos = [...this.imageInfos];
+        const [imageToShow] = newImageInfos.splice(imageIndex, 1);
+        newImageInfos.unshift(imageToShow);
+        this.imageInfos = newImageInfos;
+      }
+
+      // Set the view to the first image (which is now the requested one).
+      this.currentImageIndex = 0;
+
+      const message = `The photo "${fileName}" is now being displayed on the screen.`;
+      console.log(`Sending to main AI: ${message}`);
+      this.updateStatus(message);
+      this.sessionPromise.then((session) => {
+        session.sendClientContent({turns: message});
+      });
+
+      this.updateStatus(`Switched to photo: ${this.formatFileName(fileName)}`);
+    } else {
+      console.warn(`Could not find image to show: ${fileName}`);
+    }
+  }
+
   private updateLocalImageContext(fileName: string, newContext: string) {
     const imageIndex = this.imageInfos.findIndex(
       (info) => info.fileName === fileName,
@@ -609,15 +640,38 @@ export class GdmApp extends LitElement {
             required: ['fileName', 'newContext'],
           },
         },
+        {
+          name: 'showImage',
+          description:
+            'Displays a specific image on the screen by its file name in response to a user request.',
+          parameters: {
+            type: Type.OBJECT,
+            properties: {
+              fileName: {
+                type: Type.STRING,
+                description: 'The file name of the image to display.',
+              },
+            },
+            required: ['fileName'],
+          },
+        },
       ],
     };
 
-    const systemInstruction = `You are a function-calling AI. Your task is to determine if you should call the 'updateImageContext' function based on what a different AI has said.
-The current image is "${currentImage.fileName}" and its existing context is: "${currentImage.context}".
-The input you receive is the other AI's spoken response.
-If this response explicitly states that the context will be updated (e.g., it starts with "Okay, I'll update the context..."), you must call the 'updateImageContext' function.
-Formulate the 'newContext' parameter by intelligently merging the new information from the AI's response with the existing context.
-If the response does not mention updating the context, do not call any function.`;
+    const availableImageFileNames = JSON.stringify(
+      this.imageInfos.map((info) => info.fileName),
+    );
+    const systemInstruction = `You are a function-calling AI that analyzes text to determine if an action should be taken. You have two functions available: 'updateImageContext' and 'showImage'.
+
+1.  **'updateImageContext'**: Call this function if the input text explicitly states that context for an image will be updated. The text will typically start with "Okay, I'll update the context...".
+    *   \`fileName\`: Use the file name of the image currently being discussed, which is "${currentImage.fileName}".
+    *   \`newContext\`: Extract the new, updated context from the input text. The existing context is: "${currentImage.context}".
+
+2.  **'showImage'**: Call this function if the input text indicates a request to show a specific photo (e.g., "Sure, here is the photo of the sunset.").
+    *   \`fileName\`: From the list of available images, choose the file name that best matches the description in the input text.
+    *   Available image files: ${availableImageFileNames}.
+
+Analyze the input text and call the appropriate function with the correct arguments if an action is indicated. If not, do not call any function.`;
 
     try {
       this.debugLogs = [
@@ -634,21 +688,27 @@ If the response does not mention updating the context, do not call any function.
         },
       });
 
-      // FIX: Use the recommended `functionCalls` property to get the function call.
-      const call = response.functionCalls?.[0];
+      const calls = response.functionCalls;
 
-      if (call) {
-        if (call.name === 'updateImageContext') {
-          const {fileName, newContext} = call.args;
-          console.log(
-            `AI wants to update context for ${fileName} to: ${newContext}`,
-          );
-          this.debugLogs = [
-            ...this.debugLogs,
-            `> updateImageContext called for ${fileName} with newContext: "${newContext}"`,
-          ];
-          // FIX: Argument of type 'unknown' is not assignable to parameter of type 'string'. Cast to String.
-          this.updateLocalImageContext(String(fileName), String(newContext));
+      if (calls) {
+        for (const call of calls) {
+          if (call.name === 'updateImageContext') {
+            const {fileName, newContext} = call.args;
+            console.log(
+              `AI wants to update context for ${fileName} to: ${newContext}`,
+            );
+            this.debugLogs = [
+              ...this.debugLogs,
+              `> updateImageContext called for ${fileName} with newContext: "${newContext}"`,
+            ];
+
+            // FIX: Argument of type 'unknown' is not assignable to parameter of type 'string'. Cast to String.
+            this.updateLocalImageContext(String(fileName), String(newContext));
+          } else if (call.name === 'showImage') {
+            const {fileName} = call.args;
+            console.log(`AI wants to show image: ${fileName}`);
+            this.showImage(String(fileName));
+          }
         }
       }
     } catch (e) {
