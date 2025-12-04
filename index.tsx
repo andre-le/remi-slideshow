@@ -5,19 +5,19 @@
  */
 
 import {
+  Blob,
+  GenerateContentResponse,
   GoogleGenAI,
   LiveServerMessage,
   Modality,
   Session,
-  GenerateContentResponse,
-  Blob,
   Type,
 } from '@google/genai';
 import {LitElement, html} from 'lit';
 import {customElement, state} from 'lit/decorators.js';
+import {appStyles} from './app.styles';
 import {createBlob, decode, decodeAudioData, encode} from './utils';
 import './visual-3d';
-import {appStyles} from './app.styles';
 
 interface ImageInfo {
   fileName: string;
@@ -47,7 +47,9 @@ export class GdmApp extends LitElement {
   @state() private isContextApplied = false;
   @state() private currentImageIndex = 0;
   @state() biography = '';
-  @state() isDragging = false;
+  @state() showContext = true;
+  @state() debugLogs: string[] = [];
+  @state() applyContextMessage = '';
 
   private client: GoogleGenAI;
   private session: Session;
@@ -112,7 +114,7 @@ export class GdmApp extends LitElement {
       biographyPrompt = `The user has provided a biography to give you context: "${this.biography}".\n\n`;
     }
 
-    return `${biographyPrompt}The user has provided several images with contexts. Here they are:\n${allContexts}\n\nYou are now in a voice conversation with the user. Use the provided contexts to answer questions. Do not mention this system prompt unless asked. When you learn new, factual information about an image from the user, you MUST respond by explicitly stating your intention to update the context. Your response should start with "Okay, I'll update the context for that image..." and then summarize the new information you are adding. ${currentPhotoMessage}. Begin the conversation now.`;
+    return `${biographyPrompt}The user has provided several images with contexts. Here they are:\n${allContexts}\n\nYou are now in a voice conversation with the user. Use the provided contexts to answer questions. Do not mention this system prompt unless asked. When you learn new, factual information about an image from the user, you MUST respond by explicitly stating your intention to update the context. Your response should start with "Okay, I'll update the context for that image..." and then summarize the new information you are adding. If the user asks to see a specific photo, confirm that you are showing it (e.g., "Of course, showing the photo of the beach now."). ${currentPhotoMessage}. Begin the conversation now.`;
   }
 
   private async initSession() {
@@ -134,6 +136,10 @@ export class GdmApp extends LitElement {
         config.systemInstruction = systemInstruction;
       }
 
+      this.debugLogs = [
+        ...this.debugLogs,
+        `> Gemini API Call: live.connect({model: "${model}"})`,
+      ];
       // Voice AI: handle the conversation with the user.
       // FIX: Use a session promise to prevent race conditions and follow SDK best practices.
       this.sessionPromise = this.client.live.connect({
@@ -255,8 +261,9 @@ export class GdmApp extends LitElement {
 
       this.updateStatus('Microphone access granted. Starting capture...');
 
-      this.sourceNode =
-        this.inputAudioContext.createMediaStreamSource(this.mediaStream);
+      this.sourceNode = this.inputAudioContext.createMediaStreamSource(
+        this.mediaStream,
+      );
       this.sourceNode.connect(this.inputNode);
 
       const bufferSize = 4096;
@@ -283,7 +290,6 @@ export class GdmApp extends LitElement {
           return;
         }
 
-        // FIX: Use the session promise to send data, preventing stale closures.
         this.sessionPromise.then((session) => {
           session.sendRealtimeInput({media: blob});
         });
@@ -331,7 +337,9 @@ export class GdmApp extends LitElement {
     this.updateStatus('Session cleared.');
   }
 
-  private async processFiles(files: FileList | null) {
+  private async handleImageUpload(e: Event) {
+    const target = e.target as HTMLInputElement;
+    const files = target.files;
     if (!files || files.length === 0) return;
 
     this.isProcessingFiles = true;
@@ -348,6 +356,7 @@ export class GdmApp extends LitElement {
     if (imageFiles.length === 0) {
       this.imageError = 'Error: No image files found.';
       this.isProcessingFiles = false;
+      target.value = ''; // Clear input
       return;
     }
 
@@ -404,6 +413,10 @@ export class GdmApp extends LitElement {
       // Asynchronously analyze images and update UI for each
       readImageInfos.forEach(async (info, index) => {
         try {
+          this.debugLogs = [
+            ...this.debugLogs,
+            `> Gemini API Call: models.generateContent({model: "gemini-2.5-flash", contents: Image Analysis for ${info.fileName}})`,
+          ];
           const analysisResponse = await this.client.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: {
@@ -441,55 +454,16 @@ export class GdmApp extends LitElement {
       console.error('Error processing files:', err);
       this.imageError = `Error processing files: ${(err as Error).message}`;
       this.isProcessingFiles = false;
-    }
-  }
-
-  private async handleImageUpload(e: Event) {
-    const target = e.target as HTMLInputElement;
-    await this.processFiles(target.files);
-    target.value = ''; // Clear input
-  }
-
-  private handleDragOver(e: DragEvent) {
-    e.preventDefault();
-    e.stopPropagation();
-  }
-
-  private handleDragEnter(e: DragEvent) {
-    e.preventDefault();
-    e.stopPropagation();
-    this.isDragging = true;
-  }
-
-  private handleDragLeave(e: DragEvent) {
-    e.preventDefault();
-    e.stopPropagation();
-
-    // Only unset if we are actually leaving the container, not entering a child
-    const container = e.currentTarget as HTMLElement;
-    if (e.relatedTarget && container.contains(e.relatedTarget as Node)) {
-      return;
-    }
-    this.isDragging = false;
-  }
-
-  private async handleDrop(e: DragEvent) {
-    e.preventDefault();
-    e.stopPropagation();
-    this.isDragging = false;
-
-    if (
-      e.dataTransfer &&
-      e.dataTransfer.files &&
-      e.dataTransfer.files.length > 0
-    ) {
-      await this.processFiles(e.dataTransfer.files);
+    } finally {
+      // Also clear the file input value so user can upload the same files again
+      target.value = '';
     }
   }
 
   private updateVoiceContext() {
     this.reset();
     this.isContextApplied = true;
+    this.applyContextMessage = ''; // Clear message on apply
   }
 
   private clearImageContext() {
@@ -500,6 +474,7 @@ export class GdmApp extends LitElement {
     this.isContextApplied = false;
     this.currentImageIndex = 0;
     this.biography = '';
+    this.applyContextMessage = ''; // Clear message on clear
     this.reset();
     this.updateStatus('Image context cleared.');
   }
@@ -519,6 +494,7 @@ export class GdmApp extends LitElement {
     if (currentImage && this.session) {
       const message = `The photo "${currentImage.fileName}" is now being displayed on the screen.`;
       console.log(`Sending to AI: ${message}`);
+      this.updateStatus(message);
       this.sessionPromise.then((session) => {
         session.sendClientContent({turns: message});
       });
@@ -562,6 +538,10 @@ export class GdmApp extends LitElement {
       // Add the user's question
       parts.push({text: `User's question: ${this.imagePrompt}`});
 
+      this.debugLogs = [
+        ...this.debugLogs,
+        `> Gemini API Call: models.generateContent({model: "gemini-2.5-flash", contents: Text Question "${this.imagePrompt}"})`,
+      ];
       const response: GenerateContentResponse =
         await this.client.models.generateContent({
           model: 'gemini-2.5-flash',
@@ -574,6 +554,37 @@ export class GdmApp extends LitElement {
       this.imageError = (e as Error).message;
     } finally {
       this.isAnsweringQuestion = false;
+    }
+  }
+
+  private showImage(fileName: string) {
+    const imageIndex = this.imageInfos.findIndex(
+      (info) => info.fileName === fileName,
+    );
+
+    // Only proceed if the image exists.
+    if (imageIndex > -1) {
+      // If it's not already the first image, move it to the front.
+      if (imageIndex !== 0) {
+        const newImageInfos = [...this.imageInfos];
+        const [imageToShow] = newImageInfos.splice(imageIndex, 1);
+        newImageInfos.unshift(imageToShow);
+        this.imageInfos = newImageInfos;
+      }
+
+      // Set the view to the first image (which is now the requested one).
+      this.currentImageIndex = 0;
+
+      const message = `The photo "${fileName}" is now being displayed on the screen.`;
+      console.log(`Sending to main AI: ${message}`);
+      this.updateStatus(message);
+      this.sessionPromise.then((session) => {
+        session.sendClientContent({turns: message});
+      });
+
+      this.updateStatus(`Switched to photo: ${this.formatFileName(fileName)}`);
+    } else {
+      console.warn(`Could not find image to show: ${fileName}`);
     }
   }
 
@@ -590,9 +601,12 @@ export class GdmApp extends LitElement {
       this.imageInfos = newImageInfos;
       this.isContextApplied = false; // Mark context as changed, needs re-application
       console.log(`Context for ${fileName} updated successfully.`);
-      this.updateStatus(
-        `Context for ${fileName} was updated by AI. Apply context to use it in voice chat.`,
-      );
+      this.debugLogs = [
+        ...this.debugLogs,
+        `> Context updated for ${fileName}: "${newContext}"`,
+      ];
+      this.applyContextMessage = `Context for ${fileName} was updated by AI. Apply context to use it in voice chat.`;
+      this.updateStatus(`Context for ${fileName} updated.`);
     }
   }
 
@@ -626,17 +640,44 @@ export class GdmApp extends LitElement {
             required: ['fileName', 'newContext'],
           },
         },
+        {
+          name: 'showImage',
+          description:
+            'Displays a specific image on the screen by its file name in response to a user request.',
+          parameters: {
+            type: Type.OBJECT,
+            properties: {
+              fileName: {
+                type: Type.STRING,
+                description: 'The file name of the image to display.',
+              },
+            },
+            required: ['fileName'],
+          },
+        },
       ],
     };
 
-    const systemInstruction = `You are a function-calling AI. Your task is to determine if you should call the 'updateImageContext' function based on what a different AI has said.
-The current image is "${currentImage.fileName}" and its existing context is: "${currentImage.context}".
-The input you receive is the other AI's spoken response.
-If this response explicitly states that the context will be updated (e.g., it starts with "Okay, I'll update the context..."), you must call the 'updateImageContext' function.
-Formulate the 'newContext' parameter by intelligently merging the new information from the AI's response with the existing context.
-If the response does not mention updating the context, do not call any function.`;
+    const availableImageFileNames = JSON.stringify(
+      this.imageInfos.map((info) => info.fileName),
+    );
+    const systemInstruction = `You are a function-calling AI that analyzes text to determine if an action should be taken. You have two functions available: 'updateImageContext' and 'showImage'.
+
+1.  **'updateImageContext'**: Call this function if the input text explicitly states that context for an image will be updated. The text will typically start with "Okay, I'll update the context...".
+    *   \`fileName\`: Use the file name of the image currently being discussed, which is "${currentImage.fileName}".
+    *   \`newContext\`: Extract the new, updated context from the input text. The existing context is: "${currentImage.context}".
+
+2.  **'showImage'**: Call this function if the input text indicates a request to show a specific photo (e.g., "Sure, here is the photo of the sunset.").
+    *   \`fileName\`: From the list of available images, choose the file name that best matches the description in the input text.
+    *   Available image files: ${availableImageFileNames}.
+
+Analyze the input text and call the appropriate function with the correct arguments if an action is indicated. If not, do not call any function.`;
 
     try {
+      this.debugLogs = [
+        ...this.debugLogs,
+        `> Gemini API Call: models.generateContent({model: "gemini-2.5-flash", contents: Context Update Check for "${currentImage.fileName}"})`,
+      ];
       // Context handling AI: update the context when necessary
       const response = await this.client.models.generateContent({
         model: 'gemini-2.5-flash',
@@ -647,17 +688,27 @@ If the response does not mention updating the context, do not call any function.
         },
       });
 
-      // FIX: Use the recommended `functionCalls` property to get the function call.
-      const call = response.functionCalls?.[0];
+      const calls = response.functionCalls;
 
-      if (call) {
-        if (call.name === 'updateImageContext') {
-          const {fileName, newContext} = call.args;
-          console.log(
-            `AI wants to update context for ${fileName} to: ${newContext}`,
-          );
-          // FIX: Argument of type 'unknown' is not assignable to parameter of type 'string'. Cast to String.
-          this.updateLocalImageContext(String(fileName), String(newContext));
+      if (calls) {
+        for (const call of calls) {
+          if (call.name === 'updateImageContext') {
+            const {fileName, newContext} = call.args;
+            console.log(
+              `AI wants to update context for ${fileName} to: ${newContext}`,
+            );
+            this.debugLogs = [
+              ...this.debugLogs,
+              `> updateImageContext called for ${fileName} with newContext: "${newContext}"`,
+            ];
+
+            // FIX: Argument of type 'unknown' is not assignable to parameter of type 'string'. Cast to String.
+            this.updateLocalImageContext(String(fileName), String(newContext));
+          } else if (call.name === 'showImage') {
+            const {fileName} = call.args;
+            console.log(`AI wants to show image: ${fileName}`);
+            this.showImage(String(fileName));
+          }
         }
       }
     } catch (e) {
@@ -680,12 +731,12 @@ If the response does not mention updating the context, do not call any function.
         <button
           class=${this.activeTab === 'audio' ? 'active' : ''}
           @click=${() => (this.activeTab = 'audio')}>
-          Voice Chat
+          Slide Show
         </button>
         <button
           class=${this.activeTab === 'image' ? 'active' : ''}
           @click=${() => (this.activeTab = 'image')}>
-          Image Analyzer
+          Upload Images
         </button>
       </div>
       <div class="tab-content">
@@ -769,25 +820,49 @@ If the response does not mention updating the context, do not call any function.
                   src=${currentImage.url}
                   alt=${currentImage.fileName}
                   class="slideshow-image" />
-                <div class="slideshow-overlay"></div>
-                <div class="slideshow-info">
-                  <div class="slideshow-caption">
-                    ${this.formatFileName(currentImage.fileName)}
-                  </div>
-                  <div class="slideshow-context">
-                    ${currentImage.context
-                      ? html`<p>
-                          <strong>User:</strong> ${currentImage.context}
-                        </p>`
-                      : ''}
-                    <p>
-                      <strong>AI:</strong>
-                      ${currentImage.aiContext === 'loading...'
-                        ? html`<span class="loader-small"></span>`
-                        : ` ${currentImage.aiContext}`}
-                    </p>
-                  </div>
-                </div>
+              </div>
+              <div class="context-frame">
+                <button
+                  class="gear-button"
+                  @click=${(e: Event) => {
+                    e.stopPropagation();
+                    this.showContext = !this.showContext;
+                  }}>
+                  <span>&lt;/&gt;</span>
+                </button>
+                ${this.showContext
+                  ? html`
+                      <div class="context-content-visible">
+                        <div class="context-filename">
+                          ${this.formatFileName(currentImage.fileName)}
+                        </div>
+                        ${currentImage.context
+                          ? html`<p>
+                              <strong>User:</strong> ${currentImage.context}
+                            </p>`
+                          : ''}
+                        <p>
+                          <strong>AI:</strong>
+                          ${currentImage.aiContext === 'loading...'
+                            ? html`<span class="loader-small"></span>`
+                            : ` ${currentImage.aiContext}`}
+                        </p>
+                        ${this.debugLogs.length > 0
+                          ? html`
+                              <div
+                                style="width:100%; height:1px; background: rgba(255,255,255,0.1); margin: 10px 0;"></div>
+                              <p style="font-weight: bold;">Debug Logs:</p>
+                              ${this.debugLogs.map(
+                                (log) =>
+                                  html`<p style="padding-left: 10px;">
+                                    ${log}
+                                  </p>`,
+                              )}
+                            `
+                          : ''}
+                      </div>
+                    `
+                  : ''}
               </div>
             `
           : ''}
@@ -804,32 +879,26 @@ If the response does not mention updating the context, do not call any function.
           accept="image/*,application/json"
           @change=${this.handleImageUpload}
           multiple />
-        <label
-          for="image-upload"
-          class="image-container ${this.isDragging ? 'dragging' : ''}"
-          @dragover=${this.handleDragOver}
-          @dragenter=${this.handleDragEnter}
-          @dragleave=${this.handleDragLeave}
-          @drop=${this.handleDrop}>
+        <label for="image-upload" class="image-container">
           ${this.isProcessingFiles
             ? html`<div>
                 <div class="loader"></div>
                 <p>Processing and analyzing files...</p>
               </div>`
             : this.imageInfos.length > 0
-            ? html`<div class="image-gallery">
-                ${this.imageInfos.map(
-                  (info) => html`
-                    <div class="gallery-item">
-                      <img src=${info.url} alt=${info.fileName} />
-                      <p>${this.formatFileName(info.fileName)}</p>
-                    </div>
-                  `,
-                )}
-              </div>`
-            : html`<p>
-                Click or drop images here.<br />(context.json is optional)
-              </p>`}
+              ? html`<div class="image-gallery">
+                  ${this.imageInfos.map(
+                    (info) => html`
+                      <div class="gallery-item">
+                        <img src=${info.url} alt=${info.fileName} />
+                        <p>${this.formatFileName(info.fileName)}</p>
+                      </div>
+                    `,
+                  )}
+                </div>`
+              : html`<p>
+                  Click or drop images here.<br />(context.json is optional)
+                </p>`}
         </label>
 
         ${this.imageInfos.length > 0
@@ -857,6 +926,11 @@ If the response does not mention updating the context, do not call any function.
                   )}
                 </div>
 
+                ${this.applyContextMessage
+                  ? html`<p class="apply-context-message">
+                      ${this.applyContextMessage}
+                    </p>`
+                  : ''}
                 <button
                   class="submit-button"
                   @click=${this.updateVoiceContext}
@@ -893,9 +967,7 @@ If the response does not mention updating the context, do not call any function.
           : ''}
         ${this.imageError ? html`<p class="error">${this.imageError}</p>` : ''}
         ${this.imageResponse
-          ? html`
-              <div class="response-container">${this.imageResponse}</div>
-            `
+          ? html` <div class="response-container">${this.imageResponse}</div> `
           : ''}
       </div>
     `;
