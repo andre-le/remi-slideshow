@@ -51,6 +51,12 @@ export class GdmApp extends LitElement {
   @state() debugLogs: string[] = [];
   @state() applyContextMessage = '';
 
+  // Holds a JSON context uploaded alone (no images) to apply to subsequent uploads
+  private globalContextData: {biography: string; photos: {fileName: string; context: string}[]} = {
+    biography: '',
+    photos: [],
+  };
+
   private client: GoogleGenAI;
   private session: Session;
   // FIX: Add sessionPromise to follow Gemini API guidelines for handling live sessions.
@@ -337,6 +343,54 @@ export class GdmApp extends LitElement {
     this.updateStatus('Session cleared.');
   }
 
+  private async parseAndApplyJsonContext(
+    file: File,
+    options?: {clearInputElem?: HTMLInputElement | null; finishProcessing?: boolean},
+  ): Promise<{biography: string; photos: {fileName: string; context: string}[]} | null> {
+    try {
+      const contextJson = await file.text();
+      const parsedData = JSON.parse(contextJson);
+      const data = {
+        biography: parsedData.biography || '',
+        photos:
+          parsedData.photos && Array.isArray(parsedData.photos)
+            ? parsedData.photos
+            : [],
+      };
+
+      // Update session-level global context and UI biography
+      this.globalContextData = data;
+      this.biography = data.biography;
+      this.applyContextMessage = 'Global JSON context loaded for this session.';
+
+      // If images have already been loaded, apply matching contexts to them
+      if (this.imageInfos && this.imageInfos.length > 0 && data.photos && data.photos.length > 0) {
+        const updated = this.imageInfos.map((info) => {
+          const matched = data.photos.find((p) => p.fileName === info.fileName);
+          if (matched && matched.context) {
+            return {...info, context: matched.context};
+          }
+          return info;
+        });
+        this.imageInfos = updated;
+        this.isContextApplied = false; // mark as changed so user can re-apply to voice session
+      }
+
+      return data;
+    } catch (err) {
+      this.imageError = `Warning: Could not parse context.json. Proceeding without context. Error: ${
+        (err as Error).message
+      }`;
+      console.error('Error parsing context.json:', err);
+      return null;
+    } finally {
+      if (options?.finishProcessing) {
+        this.isProcessingFiles = false;
+      }
+      if (options?.clearInputElem) options.clearInputElem.value = '';
+    }
+  }
+
   private async handleImageUpload(e: Event) {
     // Support both input and drag-and-drop events
     const files: FileList | null =
@@ -359,6 +413,15 @@ export class GdmApp extends LitElement {
     const imageFiles = fileList.filter((f) => f.type.startsWith('image/'));
 
     if (imageFiles.length === 0) {
+      // If the user uploaded only a JSON file (no images), store it as global context
+      if (jsonFiles.length > 0) {
+        await this.parseAndApplyJsonContext(jsonFiles[0], {
+          clearInputElem: inputElem,
+          finishProcessing: true,
+        });
+        return;
+      }
+
       this.imageError = 'Error: No image files found.';
       this.isProcessingFiles = false;
       if (inputElem) {
@@ -374,20 +437,15 @@ export class GdmApp extends LitElement {
 
     const contextFile = jsonFiles.length > 0 ? jsonFiles[0] : null;
     if (contextFile) {
-      try {
-        const contextJson = await contextFile.text();
-        const parsedData = JSON.parse(contextJson);
-        contextData.biography = parsedData.biography || '';
-        contextData.photos =
-          parsedData.photos && Array.isArray(parsedData.photos)
-            ? parsedData.photos
-            : [];
-      } catch (err) {
-        this.imageError = `Warning: Could not parse context.json. Proceeding without context. Error: ${
-          (err as Error).message
-        }`;
-        console.error('Error parsing context.json:', err);
-      }
+      // Parse and apply JSON context, but do NOT finish processing here (images still to be handled)
+      const parsed = await this.parseAndApplyJsonContext(contextFile, {
+        clearInputElem: null,
+        finishProcessing: false,
+      });
+      if (parsed) contextData = parsed;
+    } else if (this.globalContextData && this.globalContextData.photos.length > 0) {
+      // No JSON in this upload, but we have a previously uploaded global JSON
+      contextData = this.globalContextData;
     }
 
     try {
