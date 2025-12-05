@@ -338,8 +338,16 @@ export class GdmApp extends LitElement {
   }
 
   private async handleImageUpload(e: Event) {
-    const target = e.target as HTMLInputElement;
-    const files = target.files;
+    // Support both input and drag-and-drop events
+    const files: FileList | null =
+      (e instanceof DragEvent
+        ? e.dataTransfer?.files
+        : (e.target as HTMLInputElement)?.files) ?? null;
+    const inputElem: HTMLInputElement | null =
+      e && !(e instanceof DragEvent) && (e.target as HTMLInputElement)?.files
+        ? (e.target as HTMLInputElement)
+        : null;
+
     if (!files || files.length === 0) return;
 
     this.isProcessingFiles = true;
@@ -348,40 +356,42 @@ export class GdmApp extends LitElement {
     this.isContextApplied = false;
 
     const fileList = Array.from(files);
-    const contextFile = fileList.find(
-      (f) => f.name.toLowerCase() === 'context.json',
-    );
+    const jsonFiles = fileList.filter((f) => f.type === 'application/json' || f.name.toLowerCase().endsWith('.json'));
     const imageFiles = fileList.filter((f) => f.type.startsWith('image/'));
 
     if (imageFiles.length === 0) {
       this.imageError = 'Error: No image files found.';
       this.isProcessingFiles = false;
-      target.value = ''; // Clear input
+      if (inputElem) {
+        inputElem.value = ''; // Clear the file input value
+      }
       return;
     }
 
-    try {
-      let contextData: {
+    let contextData: {
         biography: string;
         photos: {fileName: string; context: string}[];
-      } = {biography: '', photos: []};
-      if (contextFile) {
-        try {
-          const contextJson = await contextFile.text();
-          const parsedData = JSON.parse(contextJson);
-          contextData.biography = parsedData.biography || '';
-          contextData.photos =
-            parsedData.photos && Array.isArray(parsedData.photos)
-              ? parsedData.photos
-              : [];
-        } catch (err) {
-          this.imageError = `Warning: Could not parse context.json. Proceeding without context. Error: ${
-            (err as Error).message
-          }`;
-          console.error('Error parsing context.json:', err);
-        }
-      }
+    } = {biography: '', photos: []};
 
+    const contextFile = jsonFiles.length > 0 ? jsonFiles[0] : null;
+    if (contextFile) {
+      try {
+        const contextJson = await contextFile.text();
+        const parsedData = JSON.parse(contextJson);
+        contextData.biography = parsedData.biography || '';
+        contextData.photos =
+          parsedData.photos && Array.isArray(parsedData.photos)
+            ? parsedData.photos
+            : [];
+      } catch (err) {
+        this.imageError = `Warning: Could not parse context.json. Proceeding without context. Error: ${
+          (err as Error).message
+        }`;
+        console.error('Error parsing context.json:', err);
+      }
+    }
+
+    try {
       this.biography = contextData.biography;
       const contexts = contextData.photos;
 
@@ -456,7 +466,7 @@ export class GdmApp extends LitElement {
       this.isProcessingFiles = false;
     } finally {
       // Also clear the file input value so user can upload the same files again
-      target.value = '';
+      if (inputElem) inputElem.value = '';
     }
   }
 
@@ -879,7 +889,29 @@ Analyze the input text and call the appropriate function with the correct argume
           accept="image/*,application/json"
           @change=${this.handleImageUpload}
           multiple />
-        <label for="image-upload" class="image-container">
+        <label
+          for="image-upload"
+          class="image-container"
+          @dragover=${(e: DragEvent) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+          @drop=${(e: DragEvent) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const files = e.dataTransfer?.files;
+            if (files && files.length > 0) {
+              // Create a fake event to reuse handleImageUpload
+              const input = this.renderRoot.querySelector('#image-upload') as HTMLInputElement;
+              if (input) {
+                // Create a DataTransfer to set files on input (not possible directly), so call handler directly
+                // Instead, call the handler with a custom event
+                const event = { target: { files } } as unknown as Event;
+                this.handleImageUpload(event);
+              }
+            }
+          }}
+        >
           ${this.isProcessingFiles
             ? html`<div>
                 <div class="loader"></div>
