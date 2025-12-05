@@ -352,7 +352,6 @@ export class GdmApp extends LitElement {
 
     this.isProcessingFiles = true;
     this.imageError = '';
-    this.imageInfos = [];
     this.isContextApplied = false;
 
     const fileList = Array.from(files);
@@ -417,7 +416,9 @@ export class GdmApp extends LitElement {
       });
 
       const readImageInfos = await Promise.all(fileReadPromises);
-      this.imageInfos = readImageInfos;
+      // Append new uploads to existing images instead of replacing them
+      const existingLength = this.imageInfos.length;
+      this.imageInfos = [...this.imageInfos, ...readImageInfos];
       this.isProcessingFiles = false; // Initial file processing is done
 
       // Asynchronously analyze images and update UI for each
@@ -444,17 +445,20 @@ export class GdmApp extends LitElement {
             },
           });
 
+          // Update the correct index in the combined imageInfos array
+          const targetIndex = existingLength + index;
           const newImageInfos = [...this.imageInfos];
-          newImageInfos[index] = {
-            ...newImageInfos[index],
+          newImageInfos[targetIndex] = {
+            ...newImageInfos[targetIndex],
             aiContext: analysisResponse.text,
           };
           this.imageInfos = newImageInfos;
         } catch (err) {
           console.error(`Failed to analyze image ${info.fileName}:`, err);
+          const targetIndex = existingLength + index;
           const newImageInfos = [...this.imageInfos];
-          newImageInfos[index] = {
-            ...newImageInfos[index],
+          newImageInfos[targetIndex] = {
+            ...newImageInfos[targetIndex],
             aiContext: 'Error: AI analysis failed for this image.',
           };
           this.imageInfos = newImageInfos;
