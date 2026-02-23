@@ -62,6 +62,13 @@ export class GdmLiveAudioVisuals3D extends LitElement {
   private canvas!: HTMLCanvasElement;
 
   static styles = css`
+    :host {
+      display: block;
+      width: 100%;
+      height: 100%;
+      position: absolute;
+      inset: 0;
+    }
     canvas {
       width: 100% !important;
       height: 100% !important;
@@ -242,7 +249,6 @@ export class GdmLiveAudioVisuals3D extends LitElement {
   }
 
   protected firstUpdated() {
-    // FIX: Property 'renderRoot' does not exist on type 'GdmLiveAudioVisuals3D'. Using `this.shadowRoot` which is the standard way to access the component's shadow DOM.
     this.canvas = this.shadowRoot!.querySelector('canvas') as HTMLCanvasElement;
     this.init();
   }

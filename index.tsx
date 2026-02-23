@@ -118,7 +118,7 @@ export class GdmApp extends LitElement {
   }
 
   private async initSession() {
-    const model = 'gemini-live-2.5-flash-preview';
+    const model = 'gemini-2.5-flash-native-audio-preview-09-2025';
 
     try {
       const config: any = {
@@ -886,19 +886,19 @@ Analyze the input text and call the appropriate function with the correct argume
                 <p>Processing and analyzing files...</p>
               </div>`
             : this.imageInfos.length > 0
-              ? html`<div class="image-gallery">
-                  ${this.imageInfos.map(
-                    (info) => html`
-                      <div class="gallery-item">
-                        <img src=${info.url} alt=${info.fileName} />
-                        <p>${this.formatFileName(info.fileName)}</p>
-                      </div>
-                    `,
-                  )}
-                </div>`
-              : html`<p>
-                  Click or drop images here.<br />(context.json is optional)
-                </p>`}
+            ? html`<div class="image-gallery">
+                ${this.imageInfos.map(
+                  (info) => html`
+                    <div class="gallery-item">
+                      <img src=${info.url} alt=${info.fileName} />
+                      <p>${this.formatFileName(info.fileName)}</p>
+                    </div>
+                  `,
+                )}
+              </div>`
+            : html`<p>
+                Click or drop images here.<br />(context.json is optional)
+              </p>`}
         </label>
 
         ${this.imageInfos.length > 0
@@ -931,6 +931,7 @@ Analyze the input text and call the appropriate function with the correct argume
                       ${this.applyContextMessage}
                     </p>`
                   : ''}
+
                 <button
                   class="submit-button"
                   @click=${this.updateVoiceContext}
@@ -967,7 +968,9 @@ Analyze the input text and call the appropriate function with the correct argume
           : ''}
         ${this.imageError ? html`<p class="error">${this.imageError}</p>` : ''}
         ${this.imageResponse
-          ? html` <div class="response-container">${this.imageResponse}</div> `
+          ? html`
+              <div class="response-container">${this.imageResponse}</div>
+            `
           : ''}
       </div>
     `;

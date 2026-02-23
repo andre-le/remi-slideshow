@@ -101,15 +101,14 @@ export class GdmLiveAudioVisuals extends LitElement {
     requestAnimationFrame(() => this.visualize());
   }
 
-  protected firstUpdated() {
-    // FIX: Property 'renderRoot' does not exist on type 'GdmLiveAudioVisuals'. Using `this.shadowRoot` which is the standard way to access the component's shadow DOM.
-    this.canvas = this.shadowRoot!.querySelector('canvas') as HTMLCanvasElement;
+  private firstUpdated() {
+    this.canvas = this.shadowRoot!.querySelector('canvas');
     this.canvas.width = 400;
     this.canvas.height = 400;
     this.canvasCtx = this.canvas.getContext('2d');
   }
 
-  protected render() {
+  private render() {
     return html`<canvas></canvas>`;
   }
 }

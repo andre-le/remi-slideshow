@@ -1,5 +1,5 @@
 {
-  "name": "remi_slideshow_stable",
+  "name": "Remix: remi_slideshow_stable",
   "description": "Experience real-time voice chat with 3D visuals react to your conversation, bringing AI interaction to life.",
   "requestFramePermissions": [
     "microphone"
