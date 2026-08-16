@@ -18,15 +18,9 @@ import {customElement, state} from 'lit/decorators.js';
 import {appStyles} from './app.styles';
 import {createBlob, decode, decodeAudioData, encode} from './utils';
 import './visual-3d';
-
-interface ImageInfo {
-  fileName: string;
-  mimeType: string;
-  base64: string;
-  context: string;
-  aiContext: string;
-  url: string;
-}
+import './eval';
+import { analyzeImage, fileToBase64, ImageInfo } from './imageAnalyzerAgent';
+import { generateSystemPrompt } from './liveAgent';
 
 @customElement('gdm-app')
 export class GdmApp extends LitElement {
@@ -91,32 +85,6 @@ export class GdmApp extends LitElement {
     this.initSession();
   }
 
-  private _generateSystemPrompt(): string | null {
-    if (this.imageInfos.length === 0) {
-      return null;
-    }
-    const allContexts = this.imageInfos
-      .map(
-        (info) =>
-          `Image "${info.fileName}":\n- User-provided context: ${info.context}\n- AI analysis of the image: ${info.aiContext}`,
-      )
-      .join('\n\n');
-
-    // Send initial image context
-    const currentImage = this.imageInfos[0];
-    var currentPhotoMessage = '';
-    if (currentImage && this.session) {
-      currentPhotoMessage = `The first photo "${currentImage.fileName}" is now being displayed on the screen.`;
-    }
-
-    let biographyPrompt = '';
-    if (this.biography) {
-      biographyPrompt = `The user has provided a biography to give you context: "${this.biography}".\n\n`;
-    }
-
-    return `${biographyPrompt}The user has provided several images with contexts. Here they are:\n${allContexts}\n\nYou are now in a voice conversation with the user. Use the provided contexts to answer questions. Do not mention this system prompt unless asked. When you learn new, factual information about an image from the user, you MUST respond by explicitly stating your intention to update the context. Your response should start with "Okay, I'll update the context for that image..." and then summarize the new information you are adding. If the user asks to see a specific photo, confirm that you are showing it (e.g., "Of course, showing the photo of the beach now."). ${currentPhotoMessage}. Begin the conversation now.`;
-  }
-
   private async initSession() {
     const model = 'gemini-2.5-flash-native-audio-preview-09-2025';
 
@@ -131,7 +99,7 @@ export class GdmApp extends LitElement {
 
       this.currentImageIndex = 0;
 
-      const systemInstruction = this._generateSystemPrompt();
+      const systemInstruction = generateSystemPrompt(this.imageInfos, this.biography, this.currentImageIndex);
       if (systemInstruction) {
         config.systemInstruction = systemInstruction;
       }
@@ -385,25 +353,17 @@ export class GdmApp extends LitElement {
       this.biography = contextData.biography;
       const contexts = contextData.photos;
 
-      const fileReadPromises = imageFiles.map((file) => {
-        return new Promise<ImageInfo>((resolve, reject) => {
-          const contextEntry = contexts.find((c) => c.fileName === file.name);
-
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            const base64String = (reader.result as string).split(',')[1];
-            resolve({
-              fileName: file.name,
-              mimeType: file.type,
-              base64: base64String,
-              context: contextEntry?.context || '', // Default to empty string
-              aiContext: 'loading...',
-              url: URL.createObjectURL(file),
-            });
-          };
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
+      const fileReadPromises = imageFiles.map(async (file) => {
+        const contextEntry = contexts.find((c) => c.fileName === file.name);
+        const base64String = await fileToBase64(file);
+        return {
+          fileName: file.name,
+          mimeType: file.type,
+          base64: base64String,
+          context: contextEntry?.context || '', // Default to empty string
+          aiContext: 'loading...',
+          url: URL.createObjectURL(file),
+        };
       });
 
       const readImageInfos = await Promise.all(fileReadPromises);
@@ -417,27 +377,12 @@ export class GdmApp extends LitElement {
             ...this.debugLogs,
             `> Gemini API Call: models.generateContent({model: "gemini-2.5-flash", contents: Image Analysis for ${info.fileName}})`,
           ];
-          const analysisResponse = await this.client.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: {
-              parts: [
-                {
-                  text: 'Analyze and describe this image in a single, concise sentence for extra context in a voice conversation.',
-                },
-                {
-                  inlineData: {
-                    mimeType: info.mimeType,
-                    data: info.base64,
-                  },
-                },
-              ],
-            },
-          });
+          const aiContext = await analyzeImage(this.client, info.mimeType, info.base64);
 
           const newImageInfos = [...this.imageInfos];
           newImageInfos[index] = {
             ...newImageInfos[index],
-            aiContext: analysisResponse.text,
+            aiContext: aiContext,
           };
           this.imageInfos = newImageInfos;
         } catch (err) {

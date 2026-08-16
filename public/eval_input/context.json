@@ -1,0 +1,21 @@
+{
+  "biography": "Clara Sterling lives in Bend, Oregon with her golden retriever, Barnaby. Clara was born on June 14, 1941 in Portland, Oregon. Her husband was Arthur Sterling, born on March 22, 1939. Clara and Arthur were married on September 18, 1965 in Eugene, Oregon. Arthur passed away in October 2021. Clara worked as a beloved high school biology teacher for 32 years. She loves botany, tending her backyard flower garden, watercolor landscape painting, and baking marionberry pies. Clara has two daughters, Elena and Beatrice. Elena is married to David Chen and lives in Seattle, Washington; they have two children, Maya and Lucas. Beatrice is married to Thomas Wright and lives in Denver, Colorado; they have a son named Owen. Clara's longtime friend Evelyn visits every Tuesday to bake and volunteer at the Cascade Botanical Greenhouse.",
+  "photos": [
+    {
+      "fileName": "wedding_1965.jpg",
+      "context": "This is a vintage photo from Arthur and Clara’s wedding day on September 18, 1965 in Eugene, Oregon."
+    },
+    {
+      "fileName": "garden_trees.jpg",
+      "context": "This is a picture of Clara's husband Arthur smiling in their backyard garden in Bend, Oregon, in front of the pine trees and garden beds he built."
+    },
+    {
+      "fileName": "family_dinner.jpg",
+      "context": "This is a warm family holiday dinner photo with Clara, Arthur, and their daughters Elena and Beatrice gathered around the festive table."
+    },
+    {
+      "fileName": "mountain_trip.jpg",
+      "context": "This is a scenic snapshot of Clara and Arthur during their anniversary hiking trip to Crater Lake National Park in the summer of 1985."
+    }
+  ]
+}
