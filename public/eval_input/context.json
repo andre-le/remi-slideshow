@@ -17,5 +17,69 @@
       "fileName": "mountain_trip.jpg",
       "context": "This is a scenic snapshot of Clara and Arthur during their anniversary hiking trip to Crater Lake National Park in the summer of 1985."
     }
+  ],
+  "evalQuestions": [
+    {
+      "id": "q1_identity_location",
+      "question": "Who is Clara Sterling and where does she live?",
+      "category": "Biographical Recall",
+      "expectedFacts": [
+        "Clara was a high school biology teacher for 32 years.",
+        "She lives in Bend, Oregon.",
+        "She lives with her golden retriever named Barnaby."
+      ],
+      "hallucinationTraps": [
+        "Do not state she lives in Seattle or Denver.",
+        "Do not invent an unrelated profession."
+      ]
+    },
+    {
+      "id": "q2_marriage_date",
+      "question": "When did Clara and Arthur get married?",
+      "category": "Biographical Recall",
+      "expectedFacts": [
+        "Clara and Arthur were married on September 18, 1965 in Eugene, Oregon."
+      ],
+      "hallucinationTraps": [
+        "Do not claim an incorrect year such as 1975 or 1980."
+      ]
+    },
+    {
+      "id": "q3_daughters_family",
+      "question": "Who are Clara's daughters and where do they live?",
+      "category": "Family & Relationships",
+      "expectedFacts": [
+        "Elena lives in Seattle, Washington (married to David Chen).",
+        "Beatrice lives in Denver, Colorado (married to Thomas Wright)."
+      ],
+      "hallucinationTraps": [
+        "Do not swap the daughters' cities.",
+        "Do not invent extra children."
+      ]
+    },
+    {
+      "id": "q4_garden_photo",
+      "question": "Tell me about the photo of Arthur in the backyard garden.",
+      "category": "Visual & Photo Context",
+      "expectedFacts": [
+        "Features Clara's late husband Arthur in their Bend, Oregon backyard garden.",
+        "Mentions the pine trees and garden beds or flowers."
+      ],
+      "hallucinationTraps": [
+        "Do not confuse Arthur with a grandson or friend."
+      ]
+    },
+    {
+      "id": "q5_mountain_trip",
+      "question": "What trip is shown in the mountain hiking photo?",
+      "category": "Visual & Photo Context",
+      "expectedFacts": [
+        "Depicts Clara and Arthur on their 20th anniversary hiking trip.",
+        "Took place at Crater Lake National Park in the summer of 1985."
+      ],
+      "hallucinationTraps": [
+        "Do not claim this was in the Canadian Rockies or Alps."
+      ]
+    }
   ]
 }
