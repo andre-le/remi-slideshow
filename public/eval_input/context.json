@@ -16,6 +16,22 @@
     {
       "fileName": "mountain_trip.jpg",
       "context": "This is a scenic snapshot of Clara and Arthur during their anniversary hiking trip to Crater Lake National Park in the summer of 1985."
+    },
+    {
+      "fileName": "golden_retriever.jpg",
+      "context": "This is a joyful photo of Clara's loyal golden retriever Barnaby playing in the sunlit backyard lawn with a yellow tennis ball."
+    },
+    {
+      "fileName": "botany_greenhouse.jpg",
+      "context": "This is a photo of Clara and her close friend Evelyn smiling together while potting orchids and tending greenery at the Cascade Botanical Greenhouse."
+    },
+    {
+      "fileName": "watercolor_painting.jpg",
+      "context": "This is an artistic snapshot of Clara's studio desk featuring her watercolor landscape painting of the Three Sisters mountains, paints, and brushes."
+    },
+    {
+      "fileName": "pie_baking.jpg",
+      "context": "This is a cozy kitchen photo of Clara's freshly baked homemade marionberry pie cooling on the counter beside fresh Oregon blackberries."
     }
   ],
   "evalQuestions": [
@@ -58,19 +74,56 @@
       ]
     },
     {
-      "id": "q4_garden_photo",
+      "id": "q4_grandchildren",
+      "question": "Who are Clara's grandchildren?",
+      "category": "Family & Relationships",
+      "expectedFacts": [
+        "Elena has two children: Maya and Lucas.",
+        "Beatrice has one son named Owen."
+      ],
+      "hallucinationTraps": [
+        "Do not claim she has no grandchildren.",
+        "Do not invent fictitious names."
+      ]
+    },
+    {
+      "id": "q5_dog_barnaby",
+      "question": "Tell me about Clara's dog and what he looks like in the yard photo.",
+      "category": "Visual & Photo Context",
+      "expectedFacts": [
+        "Her dog is a golden retriever named Barnaby.",
+        "The photo shows him happily on the green lawn with a yellow tennis ball."
+      ],
+      "hallucinationTraps": [
+        "Do not say Barnaby is a cat or a black labrador."
+      ]
+    },
+    {
+      "id": "q6_greenhouse_friend",
+      "question": "Who is with Clara in the botanical greenhouse picture, and what do they do together?",
+      "category": "Visual & Photo Context",
+      "expectedFacts": [
+        "Her longtime friend Evelyn is with her.",
+        "They volunteer every Tuesday and pot orchids at the Cascade Botanical Greenhouse."
+      ],
+      "hallucinationTraps": [
+        "Do not identify Evelyn as a daughter or sister."
+      ]
+    },
+    {
+      "id": "q7_garden_photo",
       "question": "Tell me about the photo of Arthur in the backyard garden.",
       "category": "Visual & Photo Context",
       "expectedFacts": [
         "Features Clara's late husband Arthur in their Bend, Oregon backyard garden.",
-        "Mentions the pine trees and garden beds or flowers."
+        "Mentions the pine trees and garden beds or flowers he built."
       ],
       "hallucinationTraps": [
         "Do not confuse Arthur with a grandson or friend."
       ]
     },
     {
-      "id": "q5_mountain_trip",
+      "id": "q8_mountain_trip",
       "question": "What trip is shown in the mountain hiking photo?",
       "category": "Visual & Photo Context",
       "expectedFacts": [
@@ -79,6 +132,30 @@
       ],
       "hallucinationTraps": [
         "Do not claim this was in the Canadian Rockies or Alps."
+      ]
+    },
+    {
+      "id": "q9_watercolor_art",
+      "question": "What does Clara like to paint, and what is shown on her desk?",
+      "category": "Hobbies & Visual Context",
+      "expectedFacts": [
+        "Clara loves watercolor landscape painting.",
+        "The photo shows her studio desk with a watercolor landscape of the Three Sisters mountains with paints and brushes."
+      ],
+      "hallucinationTraps": [
+        "Do not claim she paints modern abstract oils or portraits."
+      ]
+    },
+    {
+      "id": "q10_pie_baking",
+      "question": "What kind of pie does Clara love to bake, and what is in the kitchen photo?",
+      "category": "Hobbies & Visual Context",
+      "expectedFacts": [
+        "Clara loves baking homemade marionberry pies.",
+        "The photo shows a freshly baked marionberry pie cooling on the counter beside fresh Oregon berries."
+      ],
+      "hallucinationTraps": [
+        "Do not claim it is an apple or pumpkin pie."
       ]
     }
   ]
