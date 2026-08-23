@@ -158,5 +158,57 @@
         "Do not claim it is an apple or pumpkin pie."
       ]
     }
+  ],
+  "evalToolQuestions": [
+    {
+      "id": "tool_show_wedding",
+      "question": "Can you show me the photo from Arthur and Clara's wedding day?",
+      "category": "Photo Navigation",
+      "expectedTool": "showImage",
+      "expectedFileName": "wedding_1965.jpg",
+      "currentPhotoFileName": "golden_retriever.jpg"
+    },
+    {
+      "id": "tool_show_greenhouse",
+      "question": "Please show me the picture of Clara and Evelyn in the botanical greenhouse.",
+      "category": "Photo Navigation",
+      "expectedTool": "showImage",
+      "expectedFileName": "botany_greenhouse.jpg",
+      "currentPhotoFileName": "wedding_1965.jpg"
+    },
+    {
+      "id": "tool_show_dog",
+      "question": "Show me the picture of Barnaby playing on the lawn.",
+      "category": "Photo Navigation",
+      "expectedTool": "showImage",
+      "expectedFileName": "golden_retriever.jpg",
+      "currentPhotoFileName": "botany_greenhouse.jpg"
+    },
+    {
+      "id": "tool_show_pie",
+      "question": "Can I see the photo of the freshly baked marionberry pie in the kitchen?",
+      "category": "Photo Navigation",
+      "expectedTool": "showImage",
+      "expectedFileName": "pie_baking.jpg",
+      "currentPhotoFileName": "golden_retriever.jpg"
+    },
+    {
+      "id": "tool_update_garden",
+      "question": "Please update the context of the backyard garden photo to note that Arthur planted the sunflowers himself in 2018.",
+      "category": "Context Update",
+      "expectedTool": "updateImageContext",
+      "expectedFileName": "garden_trees.jpg",
+      "currentPhotoFileName": "garden_trees.jpg",
+      "expectedKeywords": ["sunflowers", "2018"]
+    },
+    {
+      "id": "tool_update_dog",
+      "question": "Update the context for the dog photo to add that Barnaby was adopted from the Bend Humane Society in 2019.",
+      "category": "Context Update",
+      "expectedTool": "updateImageContext",
+      "expectedFileName": "golden_retriever.jpg",
+      "currentPhotoFileName": "golden_retriever.jpg",
+      "expectedKeywords": ["Bend Humane Society", "2019"]
+    }
   ]
 }

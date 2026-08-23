@@ -7,13 +7,19 @@ import {
 import { analyzeImage, urlToBase64, ImageInfo } from './imageAnalyzerAgent';
 import { generateSystemPrompt } from './liveAgent';
 import { EvalQuestion, QuestionEvalResult, VoiceEvalJudge } from './evalJudgeAgent';
+import { ToolCallVerifier, EvalToolQuestion } from './toolCallVerifier';
+
+/**
+ * Supported benchmark evaluation modes.
+ */
+export type EvalMode = 'all' | 'qa' | 'tool';
 
 /**
  * Progress and event callbacks for the evaluation runner.
  */
 export interface EvalRunnerCallbacks {
   onStatusUpdate: (status: string) => void;
-  onQuestionStart: (question: EvalQuestion, index: number, total: number) => void;
+  onQuestionStart: (question: { id: string; question: string; category: string }, index: number, total: number) => void;
   onTranscriptChunk: (chunk: string) => void;
   onQuestionComplete: (result: QuestionEvalResult) => void;
 }
@@ -28,6 +34,9 @@ export interface EvalRunSummary {
   avgFactualityScore: number;
   hallucinationCount: number;
   avgLatencyMs: number;
+  toolPassCount: number;
+  toolTotalCount: number;
+  toolAccuracyPercent: number;
 }
 
 /**
@@ -36,23 +45,26 @@ export interface EvalRunSummary {
  * Orchestrates the end-to-end evaluation lifecycle:
  * 1. Loads context and AI-analyzes multimodal images.
  * 2. Assembles system instructions and boots Gemini Live session.
- * 3. Dispatches benchmark questions sequentially and measures response latency.
- * 4. Invokes the VoiceEvalJudge (LLM-as-a-Judge) for automated scoring.
+ * 3. Dispatches benchmark questions sequentially (Q&A factuality + Tool calling).
+ * 4. Measures response latency and streams transcripts.
+ * 5. Grades with VoiceEvalJudge and ToolCallVerifier (Gemini 3.7 Flash).
  */
 export class VoiceEvalRunner {
   private client: GoogleGenAI;
   private judge: VoiceEvalJudge;
+  private toolVerifier: ToolCallVerifier;
   private session: Session | null = null;
 
   constructor(apiKey: string) {
     this.client = new GoogleGenAI({ apiKey });
     this.judge = new VoiceEvalJudge(this.client, 'gemini-3.7-flash');
+    this.toolVerifier = new ToolCallVerifier(this.client, 'gemini-3.7-flash');
   }
 
   /**
    * Runs the complete evaluation suite against the provided dataset.
    */
-  async run(callbacks: EvalRunnerCallbacks): Promise<QuestionEvalResult[]> {
+  async run(callbacks: EvalRunnerCallbacks, mode: EvalMode = 'all'): Promise<QuestionEvalResult[]> {
     const results: QuestionEvalResult[] = [];
 
     try {
@@ -65,13 +77,10 @@ export class VoiceEvalRunner {
       const contextData = await contextResponse.json();
       const biography: string = contextData.biography || '';
       const photos: { fileName: string; context: string }[] = contextData.photos || [];
-      const evalQuestions: EvalQuestion[] = contextData.evalQuestions || [];
+      const qaQuestions: EvalQuestion[] = contextData.evalQuestions || [];
+      const toolQuestions: EvalToolQuestion[] = contextData.evalToolQuestions || [];
 
-      if (evalQuestions.length === 0) {
-        throw new Error('No evaluation questions found in context.json');
-      }
-
-      callbacks.onStatusUpdate(`Analyzing ${photos.length} evaluation images...`);
+      callbacks.onStatusUpdate(`Analyzing ${photos.length} evaluation images with Gemini Vision...`);
       const enrichedPhotos: ImageInfo[] = await Promise.all(
         photos.map(async (p) => {
           try {
@@ -149,53 +158,126 @@ export class VoiceEvalRunner {
         },
       });
 
-      // Sequential Execution across all benchmark questions
-      for (let i = 0; i < evalQuestions.length; i++) {
-        const q = evalQuestions[i];
-        callbacks.onQuestionStart(q, i, evalQuestions.length);
-        callbacks.onStatusUpdate(`Asking (${i + 1}/${evalQuestions.length}): "${q.question}"`);
+      // 1. Run Q&A Factuality Benchmarks (Milestone 1)
+      if (mode === 'all' || mode === 'qa') {
+        const totalQA = qaQuestions.length;
+        for (let i = 0; i < totalQA; i++) {
+          const q = qaQuestions[i];
+          callbacks.onQuestionStart(q, i, totalQA);
+          callbacks.onStatusUpdate(`Asking Q&A (${i + 1}/${totalQA}): "${q.question}"`);
 
-        currentTranscription = '';
-        const startTime = performance.now();
+          currentTranscription = '';
+          const startTime = performance.now();
 
-        const turnPromise = new Promise<string>((resolve) => {
-          turnResolver = resolve;
-        });
+          const turnPromise = new Promise<string>((resolve) => {
+            turnResolver = resolve;
+          });
 
-        // Send question as text turn to the Live voice model
-        await this.session.sendClientContent({
-          turns: [{ parts: [{ text: q.question }] }],
-        });
+          await this.session.sendClientContent({
+            turns: [{ parts: [{ text: q.question }] }],
+          });
 
-        const spokenAnswer = await turnPromise;
-        const latencyMs = Math.round(performance.now() - startTime);
+          const spokenAnswer = await turnPromise;
+          const latencyMs = Math.round(performance.now() - startTime);
 
-        callbacks.onStatusUpdate(`Grading answer for question ${i + 1} with LLM Judge...`);
-        const score = await this.judge.evaluateAnswer({
-          question: q.question,
-          category: q.category,
-          answer: spokenAnswer,
-          expectedFacts: q.expectedFacts,
-          hallucinationTraps: q.hallucinationTraps,
-          biography,
-          photoContexts: formattedPhotoContexts,
-        });
+          callbacks.onStatusUpdate(`Grading answer for question ${i + 1} with LLM Judge (Gemini 3.7)...`);
+          const score = await this.judge.evaluateAnswer({
+            question: q.question,
+            category: q.category,
+            answer: spokenAnswer,
+            expectedFacts: q.expectedFacts,
+            hallucinationTraps: q.hallucinationTraps,
+            biography,
+            photoContexts: formattedPhotoContexts,
+          });
 
-        const result: QuestionEvalResult = {
-          id: q.id,
-          question: q.question,
-          category: q.category,
-          answer: spokenAnswer,
-          expectedFacts: q.expectedFacts,
-          score,
-          latencyMs,
-        };
+          const result: QuestionEvalResult = {
+            id: q.id,
+            question: q.question,
+            category: q.category,
+            testType: 'qa',
+            answer: spokenAnswer,
+            expectedFacts: q.expectedFacts,
+            score,
+            latencyMs,
+          };
 
-        results.push(result);
-        callbacks.onQuestionComplete(result);
+          results.push(result);
+          callbacks.onQuestionComplete(result);
+        }
       }
 
-      callbacks.onStatusUpdate('Evaluation complete!');
+      // 2. Run Function Calling & Navigation Benchmarks (Milestone 2)
+      if (mode === 'all' || mode === 'tool') {
+        const totalTools = toolQuestions.length;
+        for (let i = 0; i < totalTools; i++) {
+          const t = toolQuestions[i];
+          callbacks.onQuestionStart(t, i, totalTools);
+          callbacks.onStatusUpdate(`Testing Tool Trigger (${i + 1}/${totalTools}): "${t.question}"`);
+
+          currentTranscription = '';
+          const startTime = performance.now();
+
+          const turnPromise = new Promise<string>((resolve) => {
+            turnResolver = resolve;
+          });
+
+          // Send prompt with active photo context in a single atomic turn to prevent desync
+          const promptWithContext = t.currentPhotoFileName
+            ? `[The photo "${t.currentPhotoFileName}" is currently displayed on screen.] User asks: ${t.question}`
+            : t.question;
+
+          await this.session.sendClientContent({
+            turns: [{ parts: [{ text: promptWithContext }] }],
+          });
+
+          const spokenAnswer = await turnPromise;
+          const latencyMs = Math.round(performance.now() - startTime);
+
+          callbacks.onStatusUpdate(`Verifying Tool Execution for: "${t.expectedTool}"...`);
+          const targetPhotoInfo = enrichedPhotos.find((p) => p.fileName === t.currentPhotoFileName);
+          const currentContext = targetPhotoInfo?.context || '';
+
+          const toolResult = await this.toolVerifier.evaluateToolCall({
+            spokenText: spokenAnswer,
+            userPrompt: t.question,
+            currentPhotoFileName: t.currentPhotoFileName,
+            currentContext,
+            availablePhotos: enrichedPhotos,
+            expectedTool: t.expectedTool,
+            expectedFileName: t.expectedFileName,
+            expectedKeywords: t.expectedKeywords,
+          });
+
+          const result: QuestionEvalResult = {
+            id: t.id,
+            question: t.question,
+            category: `Tool: ${t.category}`,
+            testType: 'tool',
+            answer: spokenAnswer,
+            expectedFacts: [
+              `Expected Tool: ${t.expectedTool}`,
+              `Expected File: ${t.expectedFileName}`,
+            ],
+            score: {
+              isPass: toolResult.isPass,
+              factualityScore: toolResult.isPass ? 5 : 1,
+              hasHallucination: false,
+              toneScore: spokenAnswer ? 4 : 1,
+              reasoning: toolResult.gradeReason,
+              missingFacts: toolResult.isPass ? [] : [`Failed to invoke ${t.expectedTool} on ${t.expectedFileName}`],
+              hallucinatedDetails: [],
+            },
+            latencyMs,
+            toolResult,
+          };
+
+          results.push(result);
+          callbacks.onQuestionComplete(result);
+        }
+      }
+
+      callbacks.onStatusUpdate('Evaluation suite complete!');
       return results;
     } finally {
       if (this.session) {
@@ -221,15 +303,26 @@ export class VoiceEvalRunner {
         avgFactualityScore: 0,
         hallucinationCount: 0,
         avgLatencyMs: 0,
+        toolPassCount: 0,
+        toolTotalCount: 0,
+        toolAccuracyPercent: 0,
       };
     }
 
     const totalQuestions = results.length;
     const passedCount = results.filter((r) => r.score.isPass).length;
     const passRatePercent = Math.round((passedCount / totalQuestions) * 100);
-    const totalFactuality = results.reduce((acc, r) => acc + r.score.factualityScore, 0);
-    const avgFactualityScore = Number((totalFactuality / totalQuestions).toFixed(1));
-    const hallucinationCount = results.filter((r) => r.score.hasHallucination).length;
+
+    const qaResults = results.filter((r) => r.testType === 'qa');
+    const totalFactuality = qaResults.reduce((acc, r) => acc + r.score.factualityScore, 0);
+    const avgFactualityScore = qaResults.length > 0 ? Number((totalFactuality / qaResults.length).toFixed(1)) : 0;
+    const hallucinationCount = qaResults.filter((r) => r.score.hasHallucination).length;
+
+    const toolResults = results.filter((r) => r.testType === 'tool');
+    const toolTotalCount = toolResults.length;
+    const toolPassCount = toolResults.filter((r) => r.toolResult?.isPass).length;
+    const toolAccuracyPercent = toolTotalCount > 0 ? Math.round((toolPassCount / toolTotalCount) * 100) : 0;
+
     const totalLatency = results.reduce((acc, r) => acc + r.latencyMs, 0);
     const avgLatencyMs = Math.round(totalLatency / totalQuestions);
 
@@ -240,6 +333,9 @@ export class VoiceEvalRunner {
       avgFactualityScore,
       hallucinationCount,
       avgLatencyMs,
+      toolPassCount,
+      toolTotalCount,
+      toolAccuracyPercent,
     };
   }
 }

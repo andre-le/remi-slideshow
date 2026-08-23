@@ -1,5 +1,7 @@
 import { GoogleGenAI, Type } from '@google/genai';
 
+import { ToolVerificationResult } from './toolCallVerifier';
+
 /**
  * Question and ground truth definition for evaluation.
  */
@@ -38,16 +40,18 @@ export interface EvaluationScore {
 }
 
 /**
- * Complete evaluation result record combining question, model transcript, and judge scores.
+ * Complete evaluation result record combining question, model transcript, judge scores, and tool results.
  */
 export interface QuestionEvalResult {
   id: string;
   question: string;
   category: string;
+  testType: 'qa' | 'tool';
   answer: string;
   expectedFacts: string[];
   score: EvaluationScore;
   latencyMs: number;
+  toolResult?: ToolVerificationResult;
 }
 
 /**

@@ -1,23 +1,25 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
-import { EvalQuestion, QuestionEvalResult } from './evalJudgeAgent';
-import { VoiceEvalRunner, EvalRunSummary } from './voiceEvalRunner';
+import { QuestionEvalResult } from './evalJudgeAgent';
+import { VoiceEvalRunner, EvalRunSummary, EvalMode } from './voiceEvalRunner';
 
 /**
  * GdmEval Web Component
  *
  * Interactive floating evaluation panel for benchmarking Voice AI against
- * ground-truth memory contexts and automated LLM-as-a-Judge grading.
+ * ground-truth memory contexts, automated LLM-as-a-Judge grading, and
+ * Milestone 2 function calling / photo navigation verification.
  */
 @customElement('gdm-eval')
 export class GdmEval extends LitElement {
   @state() private results: QuestionEvalResult[] = [];
   @state() private summary: EvalRunSummary | null = null;
   @state() private status = 'Idle';
-  @state() private currentQuestion: EvalQuestion | null = null;
+  @state() private currentQuestion: { id: string; question: string; category: string } | null = null;
   @state() private currentTranscription = '';
   @state() private isRunning = false;
   @state() private isOpen = false;
+  @state() private selectedMode: EvalMode = 'all';
 
   static styles = css`
     :host {
@@ -54,7 +56,7 @@ export class GdmEval extends LitElement {
     }
 
     .panel {
-      width: 520px;
+      width: 560px;
       max-height: 88vh;
       padding: 24px;
       color: #f3f4f6;
@@ -71,8 +73,8 @@ export class GdmEval extends LitElement {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 16px;
-      padding-bottom: 12px;
+      margin-bottom: 12px;
+      padding-bottom: 10px;
       border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     }
 
@@ -87,12 +89,41 @@ export class GdmEval extends LitElement {
 
     .status-badge {
       display: inline-block;
-      font-size: 12px;
-      padding: 4px 10px;
+      font-size: 11px;
+      padding: 3px 8px;
       border-radius: 9999px;
       background: rgba(255, 255, 255, 0.08);
       color: #9ca3af;
-      margin-bottom: 16px;
+    }
+
+    /* Mode Selector */
+    .mode-selector {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 14px;
+      background: rgba(255, 255, 255, 0.04);
+      padding: 4px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .mode-btn {
+      flex: 1;
+      padding: 6px 10px;
+      font-size: 12px;
+      font-weight: 600;
+      border: none;
+      border-radius: 6px;
+      background: transparent;
+      color: #9ca3af;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .mode-btn.active {
+      background: #2563eb;
+      color: white;
+      box-shadow: 0 2px 8px rgba(37, 99, 235, 0.4);
     }
 
     .run-btn {
@@ -126,27 +157,27 @@ export class GdmEval extends LitElement {
     .summary-grid {
       display: grid;
       grid-template-columns: repeat(4, 1fr);
-      gap: 10px;
-      margin-top: 16px;
-      margin-bottom: 20px;
+      gap: 8px;
+      margin-top: 14px;
+      margin-bottom: 16px;
     }
 
     .summary-card {
       background: rgba(255, 255, 255, 0.04);
       border: 1px solid rgba(255, 255, 255, 0.08);
       border-radius: 8px;
-      padding: 10px;
+      padding: 8px;
       text-align: center;
     }
 
     .summary-value {
-      font-size: 18px;
+      font-size: 17px;
       font-weight: 700;
       color: #ffffff;
     }
 
     .summary-label {
-      font-size: 11px;
+      font-size: 10px;
       color: #9ca3af;
       margin-top: 2px;
       text-transform: uppercase;
@@ -167,7 +198,7 @@ export class GdmEval extends LitElement {
 
     /* Live Stream Box */
     .live-stream-box {
-      margin-top: 16px;
+      margin-top: 14px;
       padding: 12px;
       border-radius: 8px;
       background: rgba(37, 99, 235, 0.1);
@@ -188,8 +219,8 @@ export class GdmEval extends LitElement {
 
     /* Result Card */
     .result-card {
-      margin-top: 16px;
-      padding: 16px;
+      margin-top: 14px;
+      padding: 14px;
       border-radius: 10px;
       background: rgba(255, 255, 255, 0.03);
       border: 1px solid rgba(255, 255, 255, 0.08);
@@ -209,6 +240,12 @@ export class GdmEval extends LitElement {
       border-radius: 4px;
       background: rgba(255, 255, 255, 0.1);
       color: #d1d5db;
+    }
+
+    .category-tag.tool {
+      background: rgba(147, 51, 234, 0.2);
+      color: #c084fc;
+      border: 1px solid rgba(147, 51, 234, 0.4);
     }
 
     .pass-tag {
@@ -234,18 +271,33 @@ export class GdmEval extends LitElement {
       font-size: 14px;
       font-weight: 600;
       color: #ffffff;
-      margin-bottom: 10px;
+      margin-bottom: 8px;
     }
 
     .answer-quote {
-      padding: 10px 12px;
+      padding: 8px 10px;
       border-radius: 6px;
       background: rgba(0, 0, 0, 0.3);
       border-left: 3px solid #3b82f6;
-      font-size: 13px;
+      font-size: 12px;
       line-height: 1.5;
       color: #e5e7eb;
-      margin-bottom: 12px;
+      margin-bottom: 10px;
+    }
+
+    .tool-box {
+      padding: 10px;
+      border-radius: 6px;
+      background: rgba(147, 51, 234, 0.08);
+      border: 1px solid rgba(147, 51, 234, 0.2);
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+
+    .tool-title {
+      font-weight: 700;
+      color: #c084fc;
+      margin-bottom: 4px;
     }
 
     .judge-box {
@@ -258,7 +310,7 @@ export class GdmEval extends LitElement {
 
     .judge-scores {
       display: flex;
-      gap: 16px;
+      gap: 14px;
       margin-bottom: 6px;
       color: #9ca3af;
     }
@@ -270,19 +322,13 @@ export class GdmEval extends LitElement {
     .judge-reasoning {
       color: #d1d5db;
       line-height: 1.4;
-      margin-bottom: 6px;
+      margin-bottom: 4px;
     }
 
     .diagnostic-list {
       margin: 4px 0 0 0;
       padding-left: 18px;
       color: #f87171;
-    }
-
-    .expected-facts-list {
-      margin: 4px 0 0 0;
-      padding-left: 18px;
-      color: #9ca3af;
     }
   `;
 
@@ -296,24 +342,27 @@ export class GdmEval extends LitElement {
     const runner = new VoiceEvalRunner(apiKey);
 
     try {
-      const results = await runner.run({
-        onStatusUpdate: (status) => {
-          this.status = status;
+      const results = await runner.run(
+        {
+          onStatusUpdate: (status) => {
+            this.status = status;
+          },
+          onQuestionStart: (q) => {
+            this.currentQuestion = q;
+            this.currentTranscription = '';
+          },
+          onTranscriptChunk: (chunk) => {
+            this.currentTranscription += chunk;
+          },
+          onQuestionComplete: (result) => {
+            this.results = [...this.results, result];
+            this.summary = VoiceEvalRunner.calculateSummary(this.results);
+            this.currentQuestion = null;
+            this.currentTranscription = '';
+          },
         },
-        onQuestionStart: (q, idx, total) => {
-          this.currentQuestion = q;
-          this.currentTranscription = '';
-        },
-        onTranscriptChunk: (chunk) => {
-          this.currentTranscription += chunk;
-        },
-        onQuestionComplete: (result) => {
-          this.results = [...this.results, result];
-          this.summary = VoiceEvalRunner.calculateSummary(this.results);
-          this.currentQuestion = null;
-          this.currentTranscription = '';
-        },
-      });
+        this.selectedMode
+      );
 
       this.results = results;
       this.summary = VoiceEvalRunner.calculateSummary(results);
@@ -343,8 +392,35 @@ export class GdmEval extends LitElement {
                 <span class="status-badge">${this.status}</span>
               </div>
 
+              <!-- Mode Selector -->
+              <div class="mode-selector">
+                <button
+                  class="mode-btn ${this.selectedMode === 'all' ? 'active' : ''}"
+                  @click=${() => (this.selectedMode = 'all')}
+                  ?disabled=${this.isRunning}
+                >
+                  All Benchmarks (16)
+                </button>
+                <button
+                  class="mode-btn ${this.selectedMode === 'qa' ? 'active' : ''}"
+                  @click=${() => (this.selectedMode = 'qa')}
+                  ?disabled=${this.isRunning}
+                >
+                  Q&A Factuality (10)
+                </button>
+                <button
+                  class="mode-btn ${this.selectedMode === 'tool' ? 'active' : ''}"
+                  @click=${() => (this.selectedMode = 'tool')}
+                  ?disabled=${this.isRunning}
+                >
+                  Tool Calling (6)
+                </button>
+              </div>
+
               <button class="run-btn" @click=${this.runEvaluation} ?disabled=${this.isRunning}>
-                ${this.isRunning ? '⏳ Running Benchmark...' : '▶ Run Evaluation Benchmark'}
+                ${this.isRunning
+                  ? '⏳ Running Benchmark...'
+                  : `▶ Run ${this.selectedMode === 'all' ? 'Complete Suite' : this.selectedMode === 'qa' ? 'Q&A Suite' : 'Tool Calling Suite'}`}
               </button>
 
               ${this.summary
@@ -363,10 +439,25 @@ export class GdmEval extends LitElement {
                         <div class="summary-label">Pass Rate</div>
                       </div>
 
-                      <div class="summary-card">
-                        <div class="summary-value">${this.summary.avgFactualityScore} / 5</div>
-                        <div class="summary-label">Factuality</div>
-                      </div>
+                      ${this.selectedMode === 'tool' || this.summary.toolTotalCount > 0
+                        ? html`
+                            <div class="summary-card">
+                              <div
+                                class="summary-value ${this.summary.toolAccuracyPercent >= 80
+                                  ? 'pass-rate-green'
+                                  : 'pass-rate-amber'}"
+                              >
+                                ${this.summary.toolAccuracyPercent}%
+                              </div>
+                              <div class="summary-label">Tool Accuracy</div>
+                            </div>
+                          `
+                        : html`
+                            <div class="summary-card">
+                              <div class="summary-value">${this.summary.avgFactualityScore} / 5</div>
+                              <div class="summary-label">Factuality</div>
+                            </div>
+                          `}
 
                       <div class="summary-card">
                         <div
@@ -401,7 +492,7 @@ export class GdmEval extends LitElement {
                   (r) => html`
                     <div class="result-card">
                       <div class="card-header">
-                        <span class="category-tag">${r.category}</span>
+                        <span class="category-tag ${r.testType === 'tool' ? 'tool' : ''}">${r.category}</span>
                         <div style="display: flex; gap: 8px; align-items: center;">
                           <span style="font-size: 11px; color: #9ca3af;">${r.latencyMs}ms</span>
                           <span class="pass-tag ${r.score.isPass ? 'pass' : 'fail'}">
@@ -410,44 +501,46 @@ export class GdmEval extends LitElement {
                         </div>
                       </div>
 
-                      <div class="question-title">Q: ${r.question}</div>
+                      <div class="question-title">Prompt: "${r.question}"</div>
 
                       <div class="answer-quote">
-                        <strong>Spoken Answer:</strong><br />
+                        <strong>Spoken Response:</strong><br />
                         ${r.answer || '(No speech transcribed)'}
                       </div>
 
-                      <div class="judge-box">
-                        <div class="judge-scores">
-                          <span class="judge-score-item">Factuality: <strong>${r.score.factualityScore}/5</strong></span>
-                          <span class="judge-score-item">Tone: <strong>${r.score.toneScore}/5</strong></span>
-                          <span class="judge-score-item">
-                            Hallucination:
-                            <strong>${r.score.hasHallucination ? '⚠️ Detected' : '✓ None'}</strong>
-                          </span>
-                        </div>
+                      ${r.toolResult
+                        ? html`
+                            <div class="tool-box">
+                              <div class="tool-title">
+                                🔧 Tool Invocation Check:
+                                <strong>${r.toolResult.toolCalled || 'None (No Tool Triggered)'}</strong>
+                              </div>
+                              <div style="color: #d1d5db; margin-top: 2px;">
+                                <strong>Expected:</strong> ${r.toolResult.expectedTool}("${r.toolResult.expectedFileName}")
+                              </div>
+                              ${r.toolResult.calledArgs && Object.keys(r.toolResult.calledArgs).length > 0
+                                ? html`
+                                    <div style="color: #9ca3af; font-size: 11px; margin-top: 2px;">
+                                      <strong>Arguments:</strong>
+                                      ${JSON.stringify(r.toolResult.calledArgs)}
+                                    </div>
+                                  `
+                                : ''}
+                            </div>
+                          `
+                        : ''}
 
+                      <div class="judge-box">
                         <div class="judge-reasoning">
-                          <strong>Judge Verdict:</strong> ${r.score.reasoning}
+                          <strong>Verdict:</strong> ${r.score.reasoning}
                         </div>
 
                         ${r.score.missingFacts.length > 0
                           ? html`
-                              <div style="margin-top: 6px; color: #fbbf24; font-size: 11px;">
-                                <strong>Missing Key Facts:</strong>
+                              <div style="margin-top: 4px; color: #fbbf24; font-size: 11px;">
+                                <strong>Diagnostics:</strong>
                                 <ul class="diagnostic-list" style="color: #fbbf24;">
                                   ${r.score.missingFacts.map((mf) => html`<li>${mf}</li>`)}
-                                </ul>
-                              </div>
-                            `
-                          : ''}
-
-                        ${r.score.hallucinatedDetails.length > 0
-                          ? html`
-                              <div style="margin-top: 6px; color: #f87171; font-size: 11px;">
-                                <strong>Hallucinated Claims:</strong>
-                                <ul class="diagnostic-list">
-                                  ${r.score.hallucinatedDetails.map((hd) => html`<li>${hd}</li>`)}
                                 </ul>
                               </div>
                             `
