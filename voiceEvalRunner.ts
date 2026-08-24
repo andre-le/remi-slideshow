@@ -20,7 +20,7 @@ export type EvalMode = 'all' | 'bio' | 'vqa' | 'relational' | 'negative' | 'tool
 export interface EvalRunnerCallbacks {
   onStatusUpdate: (status: string) => void;
   onQuestionStart: (question: { id: string; question: string; category: string }, index: number, total: number) => void;
-  onTranscriptChunk: (chunk: string) => void;
+  onTranscriptChunk: (chunk: string, currentTtftMs?: number) => void;
   onQuestionComplete: (result: QuestionEvalResult) => void;
 }
 
@@ -34,6 +34,8 @@ export interface CategoryMetric {
   passRatePercent: number;
   avgFactuality: number;
   hallucinationCount: number;
+  avgLatencyMs: number;
+  avgTtftMs: number;
 }
 
 /**
@@ -46,6 +48,7 @@ export interface EvalRunSummary {
   avgFactualityScore: number;
   hallucinationCount: number;
   avgLatencyMs: number;
+  avgTtftMs: number; // Time to First Transcript chunk latency in ms
   toolPassCount: number;
   toolTotalCount: number;
   toolAccuracyPercent: number;
@@ -59,7 +62,7 @@ export interface EvalRunSummary {
  * 1. Loads context and AI-analyzes multimodal images.
  * 2. Assembles system instructions and boots Gemini Live session.
  * 3. Dispatches benchmark questions sequentially across categories.
- * 4. Measures response latency and streams transcripts.
+ * 4. Measures TTFT (Time-to-First-Transcript chunk) and total turn latency.
  * 5. Grades with VoiceEvalJudge and ToolCallVerifier (Gemini 3.7 Flash).
  */
 export class VoiceEvalRunner {
@@ -147,7 +150,10 @@ export class VoiceEvalRunner {
 
       callbacks.onStatusUpdate('Connecting to Gemini Live API session...');
       let currentTranscription = '';
-      let turnResolver: ((transcription: string) => void) | null = null;
+      let currentStartTime = 0;
+      let currentTtftMs = 0;
+      let firstChunkReceived = false;
+      let turnResolver: ((result: { text: string; ttftMs: number; latencyMs: number }) => void) | null = null;
 
       this.session = await this.client.live.connect({
         model: 'gemini-2.5-flash-native-audio-preview-09-2025',
@@ -161,16 +167,27 @@ export class VoiceEvalRunner {
 
             if (serverContent.outputTranscription?.text) {
               const textChunk = serverContent.outputTranscription.text;
+              if (!firstChunkReceived && currentStartTime > 0) {
+                currentTtftMs = Math.round(performance.now() - currentStartTime);
+                firstChunkReceived = true;
+              }
               currentTranscription += textChunk;
-              callbacks.onTranscriptChunk(textChunk);
+              callbacks.onTranscriptChunk(textChunk, currentTtftMs);
             }
 
             if (serverContent.turnComplete) {
+              const totalLatencyMs = currentStartTime > 0 ? Math.round(performance.now() - currentStartTime) : 0;
+              const finalTtftMs = firstChunkReceived ? currentTtftMs : totalLatencyMs;
               if (turnResolver) {
-                turnResolver(currentTranscription.trim());
+                turnResolver({
+                  text: currentTranscription.trim(),
+                  ttftMs: finalTtftMs,
+                  latencyMs: totalLatencyMs,
+                });
                 turnResolver = null;
               }
               currentTranscription = '';
+              firstChunkReceived = false;
             }
           },
           onerror: (err) => {
@@ -197,9 +214,11 @@ export class VoiceEvalRunner {
           callbacks.onStatusUpdate(`Asking Q&A (${i + 1}/${totalQA}) [${q.category}]: "${q.question}"`);
 
           currentTranscription = '';
-          const startTime = performance.now();
+          firstChunkReceived = false;
+          currentTtftMs = 0;
+          currentStartTime = performance.now();
 
-          const turnPromise = new Promise<string>((resolve) => {
+          const turnPromise = new Promise<{ text: string; ttftMs: number; latencyMs: number }>((resolve) => {
             turnResolver = resolve;
           });
 
@@ -207,8 +226,7 @@ export class VoiceEvalRunner {
             turns: [{ parts: [{ text: q.question }] }],
           });
 
-          const spokenAnswer = await turnPromise;
-          const latencyMs = Math.round(performance.now() - startTime);
+          const { text: spokenAnswer, ttftMs, latencyMs } = await turnPromise;
 
           callbacks.onStatusUpdate(`Grading answer for question ${i + 1} with LLM Judge (Gemini 3.7)...`);
           const score = await this.judge.evaluateAnswer({
@@ -230,6 +248,7 @@ export class VoiceEvalRunner {
             expectedFacts: q.expectedFacts,
             score,
             latencyMs,
+            ttftMs,
           };
 
           results.push(result);
@@ -246,9 +265,11 @@ export class VoiceEvalRunner {
           callbacks.onStatusUpdate(`Testing Tool Trigger (${i + 1}/${totalTools}): "${t.question}"`);
 
           currentTranscription = '';
-          const startTime = performance.now();
+          firstChunkReceived = false;
+          currentTtftMs = 0;
+          currentStartTime = performance.now();
 
-          const turnPromise = new Promise<string>((resolve) => {
+          const turnPromise = new Promise<{ text: string; ttftMs: number; latencyMs: number }>((resolve) => {
             turnResolver = resolve;
           });
 
@@ -261,8 +282,7 @@ export class VoiceEvalRunner {
             turns: [{ parts: [{ text: promptWithContext }] }],
           });
 
-          const spokenAnswer = await turnPromise;
-          const latencyMs = Math.round(performance.now() - startTime);
+          const { text: spokenAnswer, ttftMs, latencyMs } = await turnPromise;
 
           callbacks.onStatusUpdate(`Verifying Tool Execution for: "${t.expectedTool}"...`);
           const targetPhotoInfo = enrichedPhotos.find((p) => p.fileName === t.currentPhotoFileName);
@@ -299,6 +319,7 @@ export class VoiceEvalRunner {
               hallucinatedDetails: [],
             },
             latencyMs,
+            ttftMs,
             toolResult,
           };
 
@@ -333,6 +354,7 @@ export class VoiceEvalRunner {
         avgFactualityScore: 0,
         hallucinationCount: 0,
         avgLatencyMs: 0,
+        avgTtftMs: 0,
         toolPassCount: 0,
         toolTotalCount: 0,
         toolAccuracyPercent: 0,
@@ -357,6 +379,9 @@ export class VoiceEvalRunner {
     const totalLatency = results.reduce((acc, r) => acc + r.latencyMs, 0);
     const avgLatencyMs = Math.round(totalLatency / totalQuestions);
 
+    const totalTtft = results.reduce((acc, r) => acc + (r.ttftMs !== undefined ? r.ttftMs : r.latencyMs), 0);
+    const avgTtftMs = Math.round(totalTtft / totalQuestions);
+
     // Compute granular per-category breakdown
     const categoryBreakdown: Record<string, CategoryMetric> = {};
     for (const r of results) {
@@ -369,6 +394,8 @@ export class VoiceEvalRunner {
           passRatePercent: 0,
           avgFactuality: 0,
           hallucinationCount: 0,
+          avgLatencyMs: 0,
+          avgTtftMs: 0,
         };
       }
       categoryBreakdown[cat].total += 1;
@@ -386,6 +413,12 @@ export class VoiceEvalRunner {
       const catResults = results.filter((r) => r.category === cat);
       const catFactualityTotal = catResults.reduce((acc, r) => acc + r.score.factualityScore, 0);
       metric.avgFactuality = Number((catFactualityTotal / metric.total).toFixed(1));
+
+      const catLatencyTotal = catResults.reduce((acc, r) => acc + r.latencyMs, 0);
+      metric.avgLatencyMs = Math.round(catLatencyTotal / metric.total);
+
+      const catTtftTotal = catResults.reduce((acc, r) => acc + (r.ttftMs !== undefined ? r.ttftMs : r.latencyMs), 0);
+      metric.avgTtftMs = Math.round(catTtftTotal / metric.total);
     }
 
     return {
@@ -395,6 +428,7 @@ export class VoiceEvalRunner {
       avgFactualityScore,
       hallucinationCount,
       avgLatencyMs,
+      avgTtftMs,
       toolPassCount,
       toolTotalCount,
       toolAccuracyPercent,

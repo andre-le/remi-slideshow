@@ -8,7 +8,7 @@ import { VoiceEvalRunner, EvalRunSummary, EvalMode, CategoryMetric } from './voi
  *
  * Interactive floating evaluation panel for benchmarking Voice AI against
  * ground-truth memory contexts, automated LLM-as-a-Judge grading across
- * categorical dimensions, and function calling / photo navigation verification.
+ * categorical dimensions, streaming TTFT latency, and tool verification.
  */
 @customElement('gdm-eval')
 export class GdmEval extends LitElement {
@@ -17,6 +17,7 @@ export class GdmEval extends LitElement {
   @state() private status = 'Idle';
   @state() private currentQuestion: { id: string; question: string; category: string } | null = null;
   @state() private currentTranscription = '';
+  @state() private currentTtftMs: number | null = null;
   @state() private isRunning = false;
   @state() private isOpen = false;
   @state() private selectedMode: EvalMode = 'all';
@@ -57,7 +58,7 @@ export class GdmEval extends LitElement {
     }
 
     .panel {
-      width: 620px;
+      width: 630px;
       max-height: 90vh;
       padding: 24px;
       color: #f3f4f6;
@@ -185,11 +186,11 @@ export class GdmEval extends LitElement {
       box-shadow: none;
     }
 
-    /* Overall Summary Grid */
+    /* Overall Summary Grid - 5 KPIs including TTFT */
     .summary-grid {
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 8px;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 6px;
       margin-top: 14px;
       margin-bottom: 12px;
     }
@@ -198,18 +199,18 @@ export class GdmEval extends LitElement {
       background: rgba(255, 255, 255, 0.04);
       border: 1px solid rgba(255, 255, 255, 0.08);
       border-radius: 8px;
-      padding: 10px 8px;
+      padding: 10px 6px;
       text-align: center;
     }
 
     .summary-value {
-      font-size: 18px;
+      font-size: 16px;
       font-weight: 700;
       color: #ffffff;
     }
 
     .summary-label {
-      font-size: 10px;
+      font-size: 9px;
       color: #9ca3af;
       margin-top: 3px;
       text-transform: uppercase;
@@ -226,6 +227,10 @@ export class GdmEval extends LitElement {
 
     .pass-rate-red {
       color: #f87171;
+    }
+
+    .ttft-badge {
+      color: #38bdf8;
     }
 
     /* Category Performance Matrix Card */
@@ -320,6 +325,7 @@ export class GdmEval extends LitElement {
     .matrix-row-meta {
       display: flex;
       justify-content: space-between;
+      align-items: center;
       font-size: 11px;
       color: #9ca3af;
     }
@@ -335,9 +341,24 @@ export class GdmEval extends LitElement {
       color: #93c5fd;
     }
 
+    .live-stream-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 4px;
+    }
+
     .live-stream-title {
       font-weight: 600;
-      margin-bottom: 4px;
+    }
+
+    .live-stream-ttft {
+      font-size: 11px;
+      font-weight: 700;
+      color: #38bdf8;
+      background: rgba(56, 189, 248, 0.15);
+      padding: 2px 6px;
+      border-radius: 4px;
     }
 
     .live-stream-text {
@@ -427,6 +448,25 @@ export class GdmEval extends LitElement {
       background: rgba(236, 72, 153, 0.2);
       color: #f472b6;
       border: 1px solid rgba(236, 72, 153, 0.4);
+    }
+
+    .metrics-header-group {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .latency-pill {
+      font-size: 11px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: #9ca3af;
+    }
+
+    .latency-pill strong {
+      color: #38bdf8;
     }
 
     .pass-tag {
@@ -536,15 +576,20 @@ export class GdmEval extends LitElement {
           onQuestionStart: (q) => {
             this.currentQuestion = q;
             this.currentTranscription = '';
+            this.currentTtftMs = null;
           },
-          onTranscriptChunk: (chunk) => {
+          onTranscriptChunk: (chunk, ttftMs) => {
             this.currentTranscription += chunk;
+            if (ttftMs !== undefined) {
+              this.currentTtftMs = ttftMs;
+            }
           },
           onQuestionComplete: (result) => {
             this.results = [...this.results, result];
             this.summary = VoiceEvalRunner.calculateSummary(this.results);
             this.currentQuestion = null;
             this.currentTranscription = '';
+            this.currentTtftMs = null;
           },
         },
         this.selectedMode
@@ -664,7 +709,7 @@ export class GdmEval extends LitElement {
 
               ${this.summary
                 ? html`
-                    <!-- Executive KPI Cards -->
+                    <!-- Executive KPI Cards with Streaming TTFT Latency -->
                     <div class="summary-grid">
                       <div class="summary-card">
                         <div
@@ -696,8 +741,13 @@ export class GdmEval extends LitElement {
                       </div>
 
                       <div class="summary-card">
+                        <div class="summary-value ttft-badge">${this.summary.avgTtftMs}ms</div>
+                        <div class="summary-label">Avg TTFT</div>
+                      </div>
+
+                      <div class="summary-card">
                         <div class="summary-value">${(this.summary.avgLatencyMs / 1000).toFixed(1)}s</div>
-                        <div class="summary-label">Avg Latency</div>
+                        <div class="summary-label">Avg Turn</div>
                       </div>
                     </div>
 
@@ -747,7 +797,8 @@ export class GdmEval extends LitElement {
 
                                     <div class="matrix-row-meta">
                                       <span><strong>${c.passed}/${c.total}</strong> passed</span>
-                                      <span>Factuality: <strong>${c.avgFactuality} / 5</strong></span>
+                                      <span>Factuality: <strong>${c.avgFactuality}/5</strong></span>
+                                      <span>⚡ TTFT: <strong>${c.avgTtftMs}ms</strong></span>
                                       <span>
                                         Hallucinations:
                                         <strong style="color: ${c.hallucinationCount > 0 ? '#f87171' : '#34d399'}">
@@ -765,11 +816,16 @@ export class GdmEval extends LitElement {
                   `
                 : ''}
 
-              <!-- Real-time Live Transcription Box -->
+              <!-- Real-time Live Transcription Box with Live TTFT -->
               ${this.currentQuestion && this.currentTranscription
                 ? html`
                     <div class="live-stream-box">
-                      <div class="live-stream-title">🎤 Model Speaking: "${this.currentQuestion.question}"</div>
+                      <div class="live-stream-header">
+                        <span class="live-stream-title">🎤 Model Speaking: "${this.currentQuestion.question}"</span>
+                        ${this.currentTtftMs !== null
+                          ? html`<span class="live-stream-ttft">⚡ TTFT: ${this.currentTtftMs}ms</span>`
+                          : ''}
+                      </div>
                       <div class="live-stream-text">${this.currentTranscription}</div>
                     </div>
                   `
@@ -798,8 +854,13 @@ export class GdmEval extends LitElement {
                           <div class="result-card">
                             <div class="card-header">
                               <span class="category-tag ${this.getCategoryClass(r.category)}">${r.category}</span>
-                              <div style="display: flex; gap: 8px; align-items: center;">
-                                <span style="font-size: 11px; color: #9ca3af;">${r.latencyMs}ms</span>
+                              <div class="metrics-header-group">
+                                <span class="latency-pill" title="Time to First Transcript Chunk">
+                                  ⚡ TTFT: <strong>${r.ttftMs ?? r.latencyMs}ms</strong>
+                                </span>
+                                <span class="latency-pill" title="Total Turn Duration">
+                                  ⏱️ Total: <strong>${r.latencyMs}ms</strong>
+                                </span>
                                 <span class="pass-tag ${r.score.isPass ? 'pass' : 'fail'}">
                                   ${r.score.isPass ? '✓ PASS' : '✗ FAIL'}
                                 </span>

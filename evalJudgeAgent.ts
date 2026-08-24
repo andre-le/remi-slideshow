@@ -51,6 +51,7 @@ export interface QuestionEvalResult {
   expectedFacts: string[];
   score: EvaluationScore;
   latencyMs: number;
+  ttftMs?: number; // Time to First Transcript chunk (streaming latency)
   toolResult?: ToolVerificationResult;
 }
 
