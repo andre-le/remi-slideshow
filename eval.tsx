@@ -7,8 +7,8 @@ import { VoiceEvalRunner, EvalRunSummary, EvalMode } from './voiceEvalRunner';
  * GdmEval Web Component
  *
  * Interactive floating evaluation panel for benchmarking Voice AI against
- * ground-truth memory contexts, automated LLM-as-a-Judge grading, and
- * Milestone 2 function calling / photo navigation verification.
+ * ground-truth memory contexts, automated LLM-as-a-Judge grading across
+ * categorical dimensions, and function calling / photo navigation verification.
  */
 @customElement('gdm-eval')
 export class GdmEval extends LitElement {
@@ -56,8 +56,8 @@ export class GdmEval extends LitElement {
     }
 
     .panel {
-      width: 560px;
-      max-height: 88vh;
+      width: 600px;
+      max-height: 90vh;
       padding: 24px;
       color: #f3f4f6;
       background: rgba(18, 18, 22, 0.96);
@@ -99,7 +99,8 @@ export class GdmEval extends LitElement {
     /* Mode Selector */
     .mode-selector {
       display: flex;
-      gap: 6px;
+      flex-wrap: wrap;
+      gap: 5px;
       margin-bottom: 14px;
       background: rgba(255, 255, 255, 0.04);
       padding: 4px;
@@ -108,9 +109,8 @@ export class GdmEval extends LitElement {
     }
 
     .mode-btn {
-      flex: 1;
-      padding: 6px 10px;
-      font-size: 12px;
+      padding: 5px 9px;
+      font-size: 11px;
       font-weight: 600;
       border: none;
       border-radius: 6px;
@@ -134,7 +134,7 @@ export class GdmEval extends LitElement {
       border: none;
       border-radius: 8px;
       cursor: pointer;
-      font-size: 15px;
+      font-size: 14px;
       font-weight: 600;
       transition: background 0.2s ease;
       display: flex;
@@ -159,7 +159,7 @@ export class GdmEval extends LitElement {
       grid-template-columns: repeat(4, 1fr);
       gap: 8px;
       margin-top: 14px;
-      margin-bottom: 16px;
+      margin-bottom: 12px;
     }
 
     .summary-card {
@@ -194,6 +194,53 @@ export class GdmEval extends LitElement {
 
     .pass-rate-red {
       color: #f87171;
+    }
+
+    /* Categorical Performance Matrix */
+    .matrix-box {
+      margin-top: 12px;
+      margin-bottom: 14px;
+      padding: 12px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .matrix-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: #93c5fd;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+
+    .matrix-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .matrix-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+      padding: 4px 6px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .matrix-cat-name {
+      font-weight: 600;
+      color: #d1d5db;
+    }
+
+    .matrix-stats {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      font-size: 11px;
     }
 
     /* Live Stream Box */
@@ -242,10 +289,34 @@ export class GdmEval extends LitElement {
       color: #d1d5db;
     }
 
+    .category-tag.bio {
+      background: rgba(59, 130, 246, 0.2);
+      color: #93c5fd;
+      border: 1px solid rgba(59, 130, 246, 0.4);
+    }
+
+    .category-tag.vqa {
+      background: rgba(16, 185, 129, 0.2);
+      color: #6ee7b7;
+      border: 1px solid rgba(16, 185, 129, 0.4);
+    }
+
+    .category-tag.relational {
+      background: rgba(139, 92, 246, 0.2);
+      color: #c4b5fd;
+      border: 1px solid rgba(139, 92, 246, 0.4);
+    }
+
+    .category-tag.negative {
+      background: rgba(245, 158, 11, 0.2);
+      color: #fcd34d;
+      border: 1px solid rgba(245, 158, 11, 0.4);
+    }
+
     .category-tag.tool {
-      background: rgba(147, 51, 234, 0.2);
-      color: #c084fc;
-      border: 1px solid rgba(147, 51, 234, 0.4);
+      background: rgba(236, 72, 153, 0.2);
+      color: #f472b6;
+      border: 1px solid rgba(236, 72, 153, 0.4);
     }
 
     .pass-tag {
@@ -288,15 +359,15 @@ export class GdmEval extends LitElement {
     .tool-box {
       padding: 10px;
       border-radius: 6px;
-      background: rgba(147, 51, 234, 0.08);
-      border: 1px solid rgba(147, 51, 234, 0.2);
+      background: rgba(236, 72, 153, 0.08);
+      border: 1px solid rgba(236, 72, 153, 0.2);
       font-size: 12px;
       margin-bottom: 8px;
     }
 
     .tool-title {
       font-weight: 700;
-      color: #c084fc;
+      color: #f472b6;
       margin-bottom: 4px;
     }
 
@@ -306,17 +377,6 @@ export class GdmEval extends LitElement {
       background: rgba(255, 255, 255, 0.02);
       border: 1px solid rgba(255, 255, 255, 0.05);
       font-size: 12px;
-    }
-
-    .judge-scores {
-      display: flex;
-      gap: 14px;
-      margin-bottom: 6px;
-      color: #9ca3af;
-    }
-
-    .judge-score-item strong {
-      color: #f3f4f6;
     }
 
     .judge-reasoning {
@@ -331,6 +391,15 @@ export class GdmEval extends LitElement {
       color: #f87171;
     }
   `;
+
+  private getCategoryClass(category: string): string {
+    if (category.includes('Biographical')) return 'bio';
+    if (category.includes('Visual')) return 'vqa';
+    if (category.includes('Temporal') || category.includes('Relational')) return 'relational';
+    if (category.includes('Negative') || category.includes('Out-of-Bounds')) return 'negative';
+    if (category.includes('Tool') || category.includes('Photo Navigation')) return 'tool';
+    return '';
+  }
 
   private async runEvaluation() {
     this.results = [];
@@ -392,21 +461,42 @@ export class GdmEval extends LitElement {
                 <span class="status-badge">${this.status}</span>
               </div>
 
-              <!-- Mode Selector -->
+              <!-- Mode / Category Selector -->
               <div class="mode-selector">
                 <button
                   class="mode-btn ${this.selectedMode === 'all' ? 'active' : ''}"
                   @click=${() => (this.selectedMode = 'all')}
                   ?disabled=${this.isRunning}
                 >
-                  All Benchmarks (16)
+                  All (19)
                 </button>
                 <button
-                  class="mode-btn ${this.selectedMode === 'qa' ? 'active' : ''}"
-                  @click=${() => (this.selectedMode = 'qa')}
+                  class="mode-btn ${this.selectedMode === 'bio' ? 'active' : ''}"
+                  @click=${() => (this.selectedMode = 'bio')}
                   ?disabled=${this.isRunning}
                 >
-                  Q&A Factuality (10)
+                  Biographical (3)
+                </button>
+                <button
+                  class="mode-btn ${this.selectedMode === 'vqa' ? 'active' : ''}"
+                  @click=${() => (this.selectedMode = 'vqa')}
+                  ?disabled=${this.isRunning}
+                >
+                  VQA Visuals (4)
+                </button>
+                <button
+                  class="mode-btn ${this.selectedMode === 'relational' ? 'active' : ''}"
+                  @click=${() => (this.selectedMode = 'relational')}
+                  ?disabled=${this.isRunning}
+                >
+                  Multi-Hop (3)
+                </button>
+                <button
+                  class="mode-btn ${this.selectedMode === 'negative' ? 'active' : ''}"
+                  @click=${() => (this.selectedMode = 'negative')}
+                  ?disabled=${this.isRunning}
+                >
+                  Negative Traps (3)
                 </button>
                 <button
                   class="mode-btn ${this.selectedMode === 'tool' ? 'active' : ''}"
@@ -420,7 +510,19 @@ export class GdmEval extends LitElement {
               <button class="run-btn" @click=${this.runEvaluation} ?disabled=${this.isRunning}>
                 ${this.isRunning
                   ? '⏳ Running Benchmark...'
-                  : `▶ Run ${this.selectedMode === 'all' ? 'Complete Suite' : this.selectedMode === 'qa' ? 'Q&A Suite' : 'Tool Calling Suite'}`}
+                  : `▶ Run ${
+                      this.selectedMode === 'all'
+                        ? 'Complete Suite'
+                        : this.selectedMode === 'bio'
+                        ? 'Biographical Suite'
+                        : this.selectedMode === 'vqa'
+                        ? 'VQA Suite'
+                        : this.selectedMode === 'relational'
+                        ? 'Multi-Hop Suite'
+                        : this.selectedMode === 'negative'
+                        ? 'Negative Traps Suite'
+                        : 'Tool Calling Suite'
+                    }`}
               </button>
 
               ${this.summary
@@ -439,25 +541,10 @@ export class GdmEval extends LitElement {
                         <div class="summary-label">Pass Rate</div>
                       </div>
 
-                      ${this.selectedMode === 'tool' || this.summary.toolTotalCount > 0
-                        ? html`
-                            <div class="summary-card">
-                              <div
-                                class="summary-value ${this.summary.toolAccuracyPercent >= 80
-                                  ? 'pass-rate-green'
-                                  : 'pass-rate-amber'}"
-                              >
-                                ${this.summary.toolAccuracyPercent}%
-                              </div>
-                              <div class="summary-label">Tool Accuracy</div>
-                            </div>
-                          `
-                        : html`
-                            <div class="summary-card">
-                              <div class="summary-value">${this.summary.avgFactualityScore} / 5</div>
-                              <div class="summary-label">Factuality</div>
-                            </div>
-                          `}
+                      <div class="summary-card">
+                        <div class="summary-value">${this.summary.avgFactualityScore} / 5</div>
+                        <div class="summary-label">Factuality</div>
+                      </div>
 
                       <div class="summary-card">
                         <div
@@ -475,6 +562,36 @@ export class GdmEval extends LitElement {
                         <div class="summary-label">Avg Latency</div>
                       </div>
                     </div>
+
+                    ${Object.keys(this.summary.categoryBreakdown).length > 0
+                      ? html`
+                          <div class="matrix-box">
+                            <div class="matrix-title">Categorical Performance Matrix</div>
+                            <div class="matrix-grid">
+                              ${Object.values(this.summary.categoryBreakdown).map(
+                                (c) => html`
+                                  <div class="matrix-row">
+                                    <span class="matrix-cat-name">${c.category}</span>
+                                    <div class="matrix-stats">
+                                      <span>${c.passed}/${c.total} passed</span>
+                                      <strong
+                                        class="${c.passRatePercent >= 80
+                                          ? 'pass-rate-green'
+                                          : c.passRatePercent >= 50
+                                          ? 'pass-rate-amber'
+                                          : 'pass-rate-red'}"
+                                      >
+                                        ${c.passRatePercent}%
+                                      </strong>
+                                      <span style="color: #9ca3af;">Factuality: ${c.avgFactuality}/5</span>
+                                    </div>
+                                  </div>
+                                `
+                              )}
+                            </div>
+                          </div>
+                        `
+                      : ''}
                   `
                 : ''}
 
@@ -492,7 +609,7 @@ export class GdmEval extends LitElement {
                   (r) => html`
                     <div class="result-card">
                       <div class="card-header">
-                        <span class="category-tag ${r.testType === 'tool' ? 'tool' : ''}">${r.category}</span>
+                        <span class="category-tag ${this.getCategoryClass(r.category)}">${r.category}</span>
                         <div style="display: flex; gap: 8px; align-items: center;">
                           <span style="font-size: 11px; color: #9ca3af;">${r.latencyMs}ms</span>
                           <span class="pass-tag ${r.score.isPass ? 'pass' : 'fail'}">

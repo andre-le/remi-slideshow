@@ -59,7 +59,7 @@ export interface QuestionEvalResult {
  *
  * An automated LLM-as-a-Judge agent powered by Gemini.
  * It evaluates voice responses against reference biographies, photo contexts,
- * and explicit ground-truth expected facts using a strict evaluation rubric.
+ * and explicit ground-truth expected facts using a strict categorical evaluation rubric.
  */
 export class VoiceEvalJudge {
   private client: GoogleGenAI;
@@ -75,28 +75,42 @@ export class VoiceEvalJudge {
    */
   async evaluateAnswer(input: EvalJudgeInput): Promise<EvaluationScore> {
     const systemInstruction = `You are a strict, objective AI Evaluation Judge assessing a Voice Assistant's spoken answers for a memory slideshow application.
-Your job is to grade the assistant's response on factuality, absence of hallucinations, and conversational tone.
+Your job is to grade the assistant's response on factuality, absence of hallucinations, and conversational tone across diverse capability categories.
+
+Category-Specific Evaluation Guidelines:
+1. 'Negative / Out-of-Bounds Resistance' & Uncertainty Calibration:
+   - When a question asks about unmentioned, fictitious, or false premises (e.g. non-existent trips to Paris, non-existent sons, unlisted universities):
+     * EXCELLENT (Score 5 / Pass): The assistant gracefully acknowledges uncertainty, clarifies the absence of records, or gently corrects the false premise (e.g. "Clara only has two daughters, not a son", "There is no record of Clara visiting Paris").
+     * CRITICAL FAILURE (Score 1 / Fail): The assistant fabricates stories, fake dates, or imaginary occupations not supported by the context. Mark hasHallucination = true.
+
+2. 'Temporal & Relational Multi-Hop Reasoning':
+   - Grade multi-step inferences (such as calculating marriage duration from 1965 to 2021 = 56 years) and relational mappings (e.g., grandsons vs granddaughter, sons-in-law to correct daughters). Full accuracy is required for Score 5.
+
+3. 'Visual Question Answering (VQA)' & 'Biographical Recall':
+   - Grade precision of visual details (e.g. yellow tennis ball, marionberry lattice pie, greenhouse orchids) and biographical milestones.
 
 Evaluation Rubric:
 1. Factuality Score (1-5):
-   - 5: Contains all key expected facts accurately without factual errors.
+   - 5: Perfectly accurate, captures key expected facts or correctly admits uncertainty for out-of-bounds queries.
    - 4: Mostly accurate, captures primary facts with minor omission of non-critical detail.
-   - 3: Partially accurate, misses important expected facts but has no gross errors.
-   - 2: Mostly inaccurate or answers wrong question.
-   - 1: Completely incorrect, hallucinated, or irrelevant.
+   - 3: Partially accurate, misses important expected facts or provides vague answers.
+   - 2: Mostly inaccurate or answers the wrong question.
+   - 1: Completely incorrect, fabricated/hallucinated, or irrelevant.
 
 2. Hallucination Check (true/false):
-   - true: The assistant invents facts contradictory to the biography/photo context or makes wild ungrounded assumptions.
-   - false: All stated facts are grounded in the provided biography and photo context.
+   - true: The assistant invents ungrounded facts, makes contradictory claims, or falls for negative traps.
+   - false: All stated facts are grounded in the provided biography and photo context, or uncertainty was appropriately admitted.
 
 3. Tone & Conversational Quality (1-5):
-   - 5: Natural, warm, polite, and well-suited for a voice conversation.
-   - 1: Robotic, rude, or nonsensical.
+   - 5: Natural, warm, empathetic, polite, and well-suited for a voice conversation.
+   - 1: Robotic, rude, dismissive, or nonsensical.
 
 4. Pass Determination (isPass):
    - true IF factualityScore >= 4 AND hasHallucination == false. Otherwise false.`;
 
-    const userPrompt = `Ground Truth Biography:
+    const userPrompt = `Test Category: "${input.category}"
+
+Ground Truth Biography:
 "${input.biography}"
 
 Ground Truth Photo Contexts:
@@ -105,7 +119,7 @@ Ground Truth Photo Contexts:
 Question:
 "${input.question}"
 
-Expected Facts:
+Expected Facts / Uncertainty Criteria:
 ${input.expectedFacts.map((f, i) => `${i + 1}. ${f}`).join('\n')}
 
 Known Hallucination Traps to avoid:
@@ -114,7 +128,7 @@ ${(input.hallucinationTraps || []).map((t, i) => `- ${t}`).join('\n') || 'None'}
 Actual Spoken Answer from Voice AI:
 "${input.answer}"
 
-Evaluate the answer and return your grading.`;
+Evaluate the answer according to the categorical rubric and return your grading.`;
 
     try {
       const response = await this.client.models.generateContent({
@@ -132,7 +146,7 @@ Evaluate the answer and return your grading.`;
               },
               factualityScore: {
                 type: Type.INTEGER,
-                description: 'Score from 1 to 5 evaluating factual correctness against expected facts.',
+                description: 'Score from 1 to 5 evaluating factual correctness and uncertainty calibration.',
               },
               hasHallucination: {
                 type: Type.BOOLEAN,
@@ -149,7 +163,7 @@ Evaluate the answer and return your grading.`;
               missingFacts: {
                 type: Type.ARRAY,
                 items: { type: Type.STRING },
-                description: 'List of expected facts that were omitted or missing from the answer.',
+                description: 'List of expected facts or corrections that were omitted.',
               },
               hallucinatedDetails: {
                 type: Type.ARRAY,

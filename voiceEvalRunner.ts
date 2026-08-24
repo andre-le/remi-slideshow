@@ -12,7 +12,7 @@ import { ToolCallVerifier, EvalToolQuestion } from './toolCallVerifier';
 /**
  * Supported benchmark evaluation modes.
  */
-export type EvalMode = 'all' | 'qa' | 'tool';
+export type EvalMode = 'all' | 'bio' | 'vqa' | 'relational' | 'negative' | 'tool';
 
 /**
  * Progress and event callbacks for the evaluation runner.
@@ -22,6 +22,18 @@ export interface EvalRunnerCallbacks {
   onQuestionStart: (question: { id: string; question: string; category: string }, index: number, total: number) => void;
   onTranscriptChunk: (chunk: string) => void;
   onQuestionComplete: (result: QuestionEvalResult) => void;
+}
+
+/**
+ * Summary metrics for an individual test category.
+ */
+export interface CategoryMetric {
+  category: string;
+  total: number;
+  passed: number;
+  passRatePercent: number;
+  avgFactuality: number;
+  hallucinationCount: number;
 }
 
 /**
@@ -37,6 +49,7 @@ export interface EvalRunSummary {
   toolPassCount: number;
   toolTotalCount: number;
   toolAccuracyPercent: number;
+  categoryBreakdown: Record<string, CategoryMetric>;
 }
 
 /**
@@ -45,7 +58,7 @@ export interface EvalRunSummary {
  * Orchestrates the end-to-end evaluation lifecycle:
  * 1. Loads context and AI-analyzes multimodal images.
  * 2. Assembles system instructions and boots Gemini Live session.
- * 3. Dispatches benchmark questions sequentially (Q&A factuality + Tool calling).
+ * 3. Dispatches benchmark questions sequentially across categories.
  * 4. Measures response latency and streams transcripts.
  * 5. Grades with VoiceEvalJudge and ToolCallVerifier (Gemini 3.7 Flash).
  */
@@ -77,8 +90,25 @@ export class VoiceEvalRunner {
       const contextData = await contextResponse.json();
       const biography: string = contextData.biography || '';
       const photos: { fileName: string; context: string }[] = contextData.photos || [];
-      const qaQuestions: EvalQuestion[] = contextData.evalQuestions || [];
-      const toolQuestions: EvalToolQuestion[] = contextData.evalToolQuestions || [];
+      let qaQuestions: EvalQuestion[] = contextData.evalQuestions || [];
+      let toolQuestions: EvalToolQuestion[] = contextData.evalToolQuestions || [];
+
+      // Filter questions based on selected mode
+      if (mode === 'bio') {
+        qaQuestions = qaQuestions.filter((q) => q.category === 'Biographical Recall');
+        toolQuestions = [];
+      } else if (mode === 'vqa') {
+        qaQuestions = qaQuestions.filter((q) => q.category === 'Visual Question Answering (VQA)');
+        toolQuestions = [];
+      } else if (mode === 'relational') {
+        qaQuestions = qaQuestions.filter((q) => q.category === 'Temporal & Relational Multi-Hop Reasoning');
+        toolQuestions = [];
+      } else if (mode === 'negative') {
+        qaQuestions = qaQuestions.filter((q) => q.category === 'Negative / Out-of-Bounds Resistance');
+        toolQuestions = [];
+      } else if (mode === 'tool') {
+        qaQuestions = [];
+      }
 
       callbacks.onStatusUpdate(`Analyzing ${photos.length} evaluation images with Gemini Vision...`);
       const enrichedPhotos: ImageInfo[] = await Promise.all(
@@ -158,13 +188,13 @@ export class VoiceEvalRunner {
         },
       });
 
-      // 1. Run Q&A Factuality Benchmarks (Milestone 1)
-      if (mode === 'all' || mode === 'qa') {
+      // 1. Run Q&A Benchmark Questions
+      if (qaQuestions.length > 0) {
         const totalQA = qaQuestions.length;
         for (let i = 0; i < totalQA; i++) {
           const q = qaQuestions[i];
           callbacks.onQuestionStart(q, i, totalQA);
-          callbacks.onStatusUpdate(`Asking Q&A (${i + 1}/${totalQA}): "${q.question}"`);
+          callbacks.onStatusUpdate(`Asking Q&A (${i + 1}/${totalQA}) [${q.category}]: "${q.question}"`);
 
           currentTranscription = '';
           const startTime = performance.now();
@@ -207,8 +237,8 @@ export class VoiceEvalRunner {
         }
       }
 
-      // 2. Run Function Calling & Navigation Benchmarks (Milestone 2)
-      if (mode === 'all' || mode === 'tool') {
+      // 2. Run Function Calling & Navigation Benchmarks
+      if (toolQuestions.length > 0) {
         const totalTools = toolQuestions.length;
         for (let i = 0; i < totalTools; i++) {
           const t = toolQuestions[i];
@@ -252,7 +282,7 @@ export class VoiceEvalRunner {
           const result: QuestionEvalResult = {
             id: t.id,
             question: t.question,
-            category: `Tool: ${t.category}`,
+            category: t.category,
             testType: 'tool',
             answer: spokenAnswer,
             expectedFacts: [
@@ -306,6 +336,7 @@ export class VoiceEvalRunner {
         toolPassCount: 0,
         toolTotalCount: 0,
         toolAccuracyPercent: 0,
+        categoryBreakdown: {},
       };
     }
 
@@ -326,6 +357,37 @@ export class VoiceEvalRunner {
     const totalLatency = results.reduce((acc, r) => acc + r.latencyMs, 0);
     const avgLatencyMs = Math.round(totalLatency / totalQuestions);
 
+    // Compute granular per-category breakdown
+    const categoryBreakdown: Record<string, CategoryMetric> = {};
+    for (const r of results) {
+      const cat = r.category;
+      if (!categoryBreakdown[cat]) {
+        categoryBreakdown[cat] = {
+          category: cat,
+          total: 0,
+          passed: 0,
+          passRatePercent: 0,
+          avgFactuality: 0,
+          hallucinationCount: 0,
+        };
+      }
+      categoryBreakdown[cat].total += 1;
+      if (r.score.isPass) {
+        categoryBreakdown[cat].passed += 1;
+      }
+      if (r.score.hasHallucination) {
+        categoryBreakdown[cat].hallucinationCount += 1;
+      }
+    }
+
+    for (const cat of Object.keys(categoryBreakdown)) {
+      const metric = categoryBreakdown[cat];
+      metric.passRatePercent = Math.round((metric.passed / metric.total) * 100);
+      const catResults = results.filter((r) => r.category === cat);
+      const catFactualityTotal = catResults.reduce((acc, r) => acc + r.score.factualityScore, 0);
+      metric.avgFactuality = Number((catFactualityTotal / metric.total).toFixed(1));
+    }
+
     return {
       totalQuestions,
       passedCount,
@@ -336,6 +398,7 @@ export class VoiceEvalRunner {
       toolPassCount,
       toolTotalCount,
       toolAccuracyPercent,
+      categoryBreakdown,
     };
   }
 }

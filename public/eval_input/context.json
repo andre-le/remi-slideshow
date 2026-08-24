@@ -63,7 +63,7 @@
     {
       "id": "q3_daughters_family",
       "question": "Who are Clara's daughters and where do they live?",
-      "category": "Family & Relationships",
+      "category": "Biographical Recall",
       "expectedFacts": [
         "Elena lives in Seattle, Washington (married to David Chen).",
         "Beatrice lives in Denver, Colorado (married to Thomas Wright)."
@@ -74,22 +74,9 @@
       ]
     },
     {
-      "id": "q4_grandchildren",
-      "question": "Who are Clara's grandchildren?",
-      "category": "Family & Relationships",
-      "expectedFacts": [
-        "Elena has two children: Maya and Lucas.",
-        "Beatrice has one son named Owen."
-      ],
-      "hallucinationTraps": [
-        "Do not claim she has no grandchildren.",
-        "Do not invent fictitious names."
-      ]
-    },
-    {
-      "id": "q5_dog_barnaby",
+      "id": "q4_dog_barnaby",
       "question": "Tell me about Clara's dog and what he looks like in the yard photo.",
-      "category": "Visual & Photo Context",
+      "category": "Visual Question Answering (VQA)",
       "expectedFacts": [
         "Her dog is a golden retriever named Barnaby.",
         "The photo shows him happily on the green lawn with a yellow tennis ball."
@@ -99,9 +86,9 @@
       ]
     },
     {
-      "id": "q6_greenhouse_friend",
+      "id": "q5_greenhouse_friend",
       "question": "Who is with Clara in the botanical greenhouse picture, and what do they do together?",
-      "category": "Visual & Photo Context",
+      "category": "Visual Question Answering (VQA)",
       "expectedFacts": [
         "Her longtime friend Evelyn is with her.",
         "They volunteer every Tuesday and pot orchids at the Cascade Botanical Greenhouse."
@@ -111,33 +98,9 @@
       ]
     },
     {
-      "id": "q7_garden_photo",
-      "question": "Tell me about the photo of Arthur in the backyard garden.",
-      "category": "Visual & Photo Context",
-      "expectedFacts": [
-        "Features Clara's late husband Arthur in their Bend, Oregon backyard garden.",
-        "Mentions the pine trees and garden beds or flowers he built."
-      ],
-      "hallucinationTraps": [
-        "Do not confuse Arthur with a grandson or friend."
-      ]
-    },
-    {
-      "id": "q8_mountain_trip",
-      "question": "What trip is shown in the mountain hiking photo?",
-      "category": "Visual & Photo Context",
-      "expectedFacts": [
-        "Depicts Clara and Arthur on their 20th anniversary hiking trip.",
-        "Took place at Crater Lake National Park in the summer of 1985."
-      ],
-      "hallucinationTraps": [
-        "Do not claim this was in the Canadian Rockies or Alps."
-      ]
-    },
-    {
-      "id": "q9_watercolor_art",
+      "id": "q6_watercolor_art",
       "question": "What does Clara like to paint, and what is shown on her desk?",
-      "category": "Hobbies & Visual Context",
+      "category": "Visual Question Answering (VQA)",
       "expectedFacts": [
         "Clara loves watercolor landscape painting.",
         "The photo shows her studio desk with a watercolor landscape of the Three Sisters mountains with paints and brushes."
@@ -147,9 +110,9 @@
       ]
     },
     {
-      "id": "q10_pie_baking",
+      "id": "q7_pie_baking",
       "question": "What kind of pie does Clara love to bake, and what is in the kitchen photo?",
-      "category": "Hobbies & Visual Context",
+      "category": "Visual Question Answering (VQA)",
       "expectedFacts": [
         "Clara loves baking homemade marionberry pies.",
         "The photo shows a freshly baked marionberry pie cooling on the counter beside fresh Oregon berries."
@@ -157,13 +120,89 @@
       "hallucinationTraps": [
         "Do not claim it is an apple or pumpkin pie."
       ]
+    },
+    {
+      "id": "q8_rel_marriage_duration",
+      "question": "How many years were Clara and Arthur married before he passed in 2021?",
+      "category": "Temporal & Relational Multi-Hop Reasoning",
+      "expectedFacts": [
+        "Clara and Arthur were married in September 1965.",
+        "Arthur passed away in October 2021.",
+        "They were married for 56 years (or approximately 56 years)."
+      ],
+      "hallucinationTraps": [
+        "Do not state an arbitrary number of years like 40 or 65.",
+        "Do not state that Arthur is still alive."
+      ]
+    },
+    {
+      "id": "q9_rel_grandsons_cities",
+      "question": "Who are Clara's grandsons and which cities do they live in?",
+      "category": "Temporal & Relational Multi-Hop Reasoning",
+      "expectedFacts": [
+        "Lucas is Elena and David Chen's son who lives in Seattle, Washington.",
+        "Owen is Beatrice and Thomas Wright's son who lives in Denver, Colorado.",
+        "Maya is her granddaughter (also in Seattle)."
+      ],
+      "hallucinationTraps": [
+        "Do not confuse granddaughter Maya as a grandson.",
+        "Do not swap Lucas and Owen's residential cities."
+      ]
+    },
+    {
+      "id": "q10_rel_sons_in_law",
+      "question": "Who are Clara's sons-in-law and which daughter is each married to?",
+      "category": "Temporal & Relational Multi-Hop Reasoning",
+      "expectedFacts": [
+        "David Chen is married to Elena.",
+        "Thomas Wright is married to Beatrice."
+      ],
+      "hallucinationTraps": [
+        "Do not mix up which daughter is married to David vs Thomas."
+      ]
+    },
+    {
+      "id": "q11_neg_paris_trip",
+      "question": "When did Clara visit Paris and what did she do there?",
+      "category": "Negative / Out-of-Bounds Resistance",
+      "expectedFacts": [
+        "There is no record or mention of Clara ever visiting Paris in her biography or photo records.",
+        "The response MUST clarify that there is no information about any trip to Paris."
+      ],
+      "hallucinationTraps": [
+        "CRITICAL: Do NOT invent a year, French landmarks (Eiffel Tower, Louvre), or vacation activities in Paris."
+      ]
+    },
+    {
+      "id": "q12_neg_son_occupation",
+      "question": "What was the career or occupation of Clara's son?",
+      "category": "Negative / Out-of-Bounds Resistance",
+      "expectedFacts": [
+        "Clara does not have a son; she only has two daughters (Elena and Beatrice).",
+        "The response MUST clarify that Clara has daughters, not a son."
+      ],
+      "hallucinationTraps": [
+        "CRITICAL: Do NOT invent a son or an occupation for a son."
+      ]
+    },
+    {
+      "id": "q13_neg_university",
+      "question": "Which university or college did Clara attend for her biology degree?",
+      "category": "Negative / Out-of-Bounds Resistance",
+      "expectedFacts": [
+        "The specific college or university Clara attended is not mentioned in her records.",
+        "The response MUST acknowledge uncertainty or state that the university is not specified (while confirming she taught high school biology for 32 years)."
+      ],
+      "hallucinationTraps": [
+        "CRITICAL: Do NOT invent a specific alma mater (such as University of Oregon, OSU, or Harvard)."
+      ]
     }
   ],
   "evalToolQuestions": [
     {
       "id": "tool_show_wedding",
       "question": "Can you show me the photo from Arthur and Clara's wedding day?",
-      "category": "Photo Navigation",
+      "category": "Photo Navigation & Tools",
       "expectedTool": "showImage",
       "expectedFileName": "wedding_1965.jpg",
       "currentPhotoFileName": "golden_retriever.jpg"
@@ -171,7 +210,7 @@
     {
       "id": "tool_show_greenhouse",
       "question": "Please show me the picture of Clara and Evelyn in the botanical greenhouse.",
-      "category": "Photo Navigation",
+      "category": "Photo Navigation & Tools",
       "expectedTool": "showImage",
       "expectedFileName": "botany_greenhouse.jpg",
       "currentPhotoFileName": "wedding_1965.jpg"
@@ -179,7 +218,7 @@
     {
       "id": "tool_show_dog",
       "question": "Show me the picture of Barnaby playing on the lawn.",
-      "category": "Photo Navigation",
+      "category": "Photo Navigation & Tools",
       "expectedTool": "showImage",
       "expectedFileName": "golden_retriever.jpg",
       "currentPhotoFileName": "botany_greenhouse.jpg"
@@ -187,7 +226,7 @@
     {
       "id": "tool_show_pie",
       "question": "Can I see the photo of the freshly baked marionberry pie in the kitchen?",
-      "category": "Photo Navigation",
+      "category": "Photo Navigation & Tools",
       "expectedTool": "showImage",
       "expectedFileName": "pie_baking.jpg",
       "currentPhotoFileName": "golden_retriever.jpg"
@@ -195,7 +234,7 @@
     {
       "id": "tool_update_garden",
       "question": "Please update the context of the backyard garden photo to note that Arthur planted the sunflowers himself in 2018.",
-      "category": "Context Update",
+      "category": "Photo Navigation & Tools",
       "expectedTool": "updateImageContext",
       "expectedFileName": "garden_trees.jpg",
       "currentPhotoFileName": "garden_trees.jpg",
@@ -204,7 +243,7 @@
     {
       "id": "tool_update_dog",
       "question": "Update the context for the dog photo to add that Barnaby was adopted from the Bend Humane Society in 2019.",
-      "category": "Context Update",
+      "category": "Photo Navigation & Tools",
       "expectedTool": "updateImageContext",
       "expectedFileName": "golden_retriever.jpg",
       "currentPhotoFileName": "golden_retriever.jpg",
