@@ -2,6 +2,7 @@ import { LitElement, html, css } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
 import { QuestionEvalResult } from './evalJudgeAgent';
 import { VoiceEvalRunner, EvalRunSummary, EvalMode, CategoryMetric } from './voiceEvalRunner';
+import { EvalExportService } from './evalExportService';
 
 /**
  * GdmEval Web Component
@@ -22,6 +23,7 @@ export class GdmEval extends LitElement {
   @state() private isOpen = false;
   @state() private selectedMode: EvalMode = 'all';
   @state() private viewFilter: string = 'all';
+  @state() private copyNotice = false;
 
   static styles = css`
     :host {
@@ -373,12 +375,20 @@ export class GdmEval extends LitElement {
       align-items: center;
       margin-top: 16px;
       margin-bottom: 8px;
+      flex-wrap: wrap;
+      gap: 8px;
     }
 
     .results-count {
       font-size: 12px;
       font-weight: 600;
       color: #9ca3af;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
 
     .clear-filter-btn {
@@ -389,6 +399,72 @@ export class GdmEval extends LitElement {
       cursor: pointer;
       text-decoration: underline;
       padding: 0;
+    }
+
+    .export-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-top: 10px;
+      margin-bottom: 12px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      flex-wrap: wrap;
+    }
+
+    .export-info {
+      font-size: 11px;
+      color: #9ca3af;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .export-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .export-btn {
+      padding: 5px 11px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      background: rgba(255, 255, 255, 0.07);
+      color: #ffffff;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.15s ease;
+    }
+
+    .export-btn:hover {
+      background: rgba(255, 255, 255, 0.15);
+      border-color: rgba(255, 255, 255, 0.3);
+      transform: translateY(-1px);
+    }
+
+    .export-btn.primary {
+      background: linear-gradient(135deg, #10b981, #059669);
+      border-color: rgba(16, 185, 129, 0.4);
+      color: #ffffff;
+      box-shadow: 0 2px 8px rgba(16, 185, 129, 0.25);
+    }
+
+    .export-btn.primary:hover {
+      background: linear-gradient(135deg, #34d399, #10b981);
+    }
+
+    .export-btn.copied {
+      background: #059669;
+      color: #ffffff;
+      border-color: #34d399;
     }
 
     .result-card {
@@ -642,6 +718,22 @@ export class GdmEval extends LitElement {
     }
   }
 
+  private handleExportJson() {
+    if (!this.summary || this.results.length === 0) return;
+    EvalExportService.downloadJson(this.results, this.summary, this.selectedMode);
+  }
+
+  private async handleCopyJson() {
+    if (!this.summary || this.results.length === 0) return;
+    const success = await EvalExportService.copyJsonToClipboard(this.results, this.summary, this.selectedMode);
+    if (success) {
+      this.copyNotice = true;
+      setTimeout(() => {
+        this.copyNotice = false;
+      }, 2500);
+    }
+  }
+
   render() {
     const displayedResults =
       this.viewFilter === 'all'
@@ -789,6 +881,26 @@ export class GdmEval extends LitElement {
                       </div>
                     </div>
 
+                    <!-- Export Report Action Bar -->
+                    <div class="export-bar">
+                      <div class="export-info">
+                        <span>💾</span>
+                        <span>Evaluation Report ready (<strong>${this.results.length}</strong> cases evaluated)</span>
+                      </div>
+                      <div class="export-actions">
+                        <button class="export-btn primary" @click=${this.handleExportJson} title="Download complete JSON report">
+                          📥 Export JSON
+                        </button>
+                        <button
+                          class="export-btn ${this.copyNotice ? 'copied' : ''}"
+                          @click=${this.handleCopyJson}
+                          title="Copy full JSON report to clipboard"
+                        >
+                          ${this.copyNotice ? '✓ Copied JSON!' : '📋 Copy JSON'}
+                        </button>
+                      </div>
+                    </div>
+
                     <!-- Categorical Performance Matrix Visual Breakdown Card -->
                     ${Object.keys(this.summary.categoryBreakdown).length > 0
                       ? html`
@@ -878,13 +990,25 @@ export class GdmEval extends LitElement {
                         Showing ${displayedResults.length} of ${this.results.length} results
                         ${this.viewFilter !== 'all' ? `(Filtered: ${this.viewFilter})` : ''}
                       </span>
-                      ${this.viewFilter !== 'all'
-                        ? html`
-                            <button class="clear-filter-btn" @click=${() => (this.viewFilter = 'all')}>
-                              Clear Filter
-                            </button>
-                          `
-                        : ''}
+                      <div class="header-actions">
+                        ${this.viewFilter !== 'all'
+                          ? html`
+                              <button class="clear-filter-btn" @click=${() => (this.viewFilter = 'all')}>
+                                Clear Filter
+                              </button>
+                            `
+                          : ''}
+                        <button class="export-btn primary" @click=${this.handleExportJson} title="Download complete JSON report">
+                          📥 Export JSON
+                        </button>
+                        <button
+                          class="export-btn ${this.copyNotice ? 'copied' : ''}"
+                          @click=${this.handleCopyJson}
+                          title="Copy JSON report to clipboard"
+                        >
+                          ${this.copyNotice ? '✓ Copied!' : '📋 Copy JSON'}
+                        </button>
+                      </div>
                     </div>
 
                     <div class="results-list">
