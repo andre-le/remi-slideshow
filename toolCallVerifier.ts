@@ -32,6 +32,11 @@ export interface ToolVerificationResult {
   expectedTool: 'showImage' | 'updateImageContext';
   expectedFileName: string;
   gradeReason: string;
+  judgeTokens?: {
+    promptTokens: number;
+    responseTokens: number;
+    totalTokens: number;
+  };
 }
 
 /**
@@ -133,6 +138,14 @@ Analyze the input text carefully and call the appropriate function with exact ar
         },
       });
 
+      const judgeTokens = response.usageMetadata
+        ? {
+            promptTokens: response.usageMetadata.promptTokenCount || 0,
+            responseTokens: response.usageMetadata.candidatesTokenCount || 0,
+            totalTokens: response.usageMetadata.totalTokenCount || 0,
+          }
+        : undefined;
+
       const calls = response.functionCalls;
       if (!calls || calls.length === 0) {
         return {
@@ -142,6 +155,7 @@ Analyze the input text carefully and call the appropriate function with exact ar
           expectedTool: params.expectedTool,
           expectedFileName: params.expectedFileName,
           gradeReason: `No function call triggered. Model spoke: "${params.spokenText}". Expected tool '${params.expectedTool}' was not invoked.`,
+          judgeTokens,
         };
       }
 
@@ -159,6 +173,7 @@ Analyze the input text carefully and call the appropriate function with exact ar
             expectedTool: params.expectedTool,
             expectedFileName: params.expectedFileName,
             gradeReason: `Incorrect tool invoked: called '${toolName}' instead of 'showImage'.`,
+            judgeTokens,
           };
         }
 
@@ -174,6 +189,7 @@ Analyze the input text carefully and call the appropriate function with exact ar
           gradeReason: matchesFile
             ? `Successfully triggered 'showImage' with target file "${calledFile}".`
             : `Triggered 'showImage' with incorrect file "${calledFile}" (expected "${params.expectedFileName}").`,
+          judgeTokens,
         };
       }
 
@@ -187,6 +203,7 @@ Analyze the input text carefully and call the appropriate function with exact ar
             expectedTool: params.expectedTool,
             expectedFileName: params.expectedFileName,
             gradeReason: `Incorrect tool invoked: called '${toolName}' instead of 'updateImageContext'.`,
+            judgeTokens,
           };
         }
 
@@ -215,6 +232,7 @@ Analyze the input text carefully and call the appropriate function with exact ar
           expectedTool: params.expectedTool,
           expectedFileName: params.expectedFileName,
           gradeReason,
+          judgeTokens,
         };
       }
 
@@ -225,6 +243,7 @@ Analyze the input text carefully and call the appropriate function with exact ar
         expectedTool: params.expectedTool,
         expectedFileName: params.expectedFileName,
         gradeReason: `Unhandled tool evaluation for '${params.expectedTool}'.`,
+        judgeTokens,
       };
     } catch (err) {
       console.error('ToolCallVerifier error:', err);

@@ -40,7 +40,26 @@ export interface EvaluationScore {
 }
 
 /**
- * Complete evaluation result record combining question, model transcript, judge scores, and tool results.
+ * Token usage metrics breakdown for input prompts, generated responses, and total tokens.
+ */
+export interface TokenUsageMetrics {
+  promptTokens: number;
+  responseTokens: number;
+  totalTokens: number;
+  liveModelTokens?: {
+    promptTokens: number;
+    responseTokens: number;
+    totalTokens: number;
+  };
+  judgeTokens?: {
+    promptTokens: number;
+    responseTokens: number;
+    totalTokens: number;
+  };
+}
+
+/**
+ * Complete evaluation result record combining question, model transcript, judge scores, latency, tokens, and tool results.
  */
 export interface QuestionEvalResult {
   id: string;
@@ -52,7 +71,20 @@ export interface QuestionEvalResult {
   score: EvaluationScore;
   latencyMs: number;
   ttftMs?: number; // Time to First Transcript chunk (streaming latency)
+  tokenUsage?: TokenUsageMetrics;
   toolResult?: ToolVerificationResult;
+}
+
+/**
+ * Result returned by the judge including score and token usage.
+ */
+export interface JudgeEvaluationOutput {
+  score: EvaluationScore;
+  judgeTokens?: {
+    promptTokens: number;
+    responseTokens: number;
+    totalTokens: number;
+  };
 }
 
 /**
@@ -74,7 +106,7 @@ export class VoiceEvalJudge {
   /**
    * Evaluates a single model transcript answer against ground-truth facts and context.
    */
-  async evaluateAnswer(input: EvalJudgeInput): Promise<EvaluationScore> {
+  async evaluateAnswer(input: EvalJudgeInput): Promise<JudgeEvaluationOutput> {
     const systemInstruction = `You are a strict, objective AI Evaluation Judge assessing a Voice Assistant's spoken answers for a memory slideshow application.
 Your job is to grade the assistant's response on factuality, absence of hallucinations, and conversational tone across diverse capability categories.
 
@@ -178,25 +210,38 @@ Evaluate the answer according to the categorical rubric and return your grading.
       });
 
       const parsed: EvaluationScore = JSON.parse(response.text || '{}');
+      const judgeTokens = response.usageMetadata
+        ? {
+            promptTokens: response.usageMetadata.promptTokenCount || 0,
+            responseTokens: response.usageMetadata.candidatesTokenCount || 0,
+            totalTokens: response.usageMetadata.totalTokenCount || 0,
+          }
+        : undefined;
+
       return {
-        isPass: Boolean(parsed.isPass),
-        factualityScore: Number(parsed.factualityScore) || 1,
-        hasHallucination: Boolean(parsed.hasHallucination),
-        toneScore: Number(parsed.toneScore) || 3,
-        reasoning: parsed.reasoning || 'Evaluation completed.',
-        missingFacts: parsed.missingFacts || [],
-        hallucinatedDetails: parsed.hallucinatedDetails || [],
+        score: {
+          isPass: Boolean(parsed.isPass),
+          factualityScore: Number(parsed.factualityScore) || 1,
+          hasHallucination: Boolean(parsed.hasHallucination),
+          toneScore: Number(parsed.toneScore) || 3,
+          reasoning: parsed.reasoning || 'Evaluation completed.',
+          missingFacts: parsed.missingFacts || [],
+          hallucinatedDetails: parsed.hallucinatedDetails || [],
+        },
+        judgeTokens,
       };
     } catch (error) {
       console.error('Judge evaluation failed:', error);
       return {
-        isPass: false,
-        factualityScore: 1,
-        hasHallucination: false,
-        toneScore: 1,
-        reasoning: `Judge evaluation error: ${(error as Error).message}`,
-        missingFacts: input.expectedFacts,
-        hallucinatedDetails: [],
+        score: {
+          isPass: false,
+          factualityScore: 1,
+          hasHallucination: false,
+          toneScore: 1,
+          reasoning: `Judge evaluation error: ${(error as Error).message}`,
+          missingFacts: input.expectedFacts,
+          hallucinatedDetails: [],
+        },
       };
     }
   }

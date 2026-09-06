@@ -6,7 +6,7 @@ import {
 } from '@google/genai';
 import { analyzeImage, urlToBase64, ImageInfo } from './imageAnalyzerAgent';
 import { generateSystemPrompt } from './liveAgent';
-import { EvalQuestion, QuestionEvalResult, VoiceEvalJudge } from './evalJudgeAgent';
+import { EvalQuestion, QuestionEvalResult, VoiceEvalJudge, TokenUsageMetrics } from './evalJudgeAgent';
 import { ToolCallVerifier, EvalToolQuestion } from './toolCallVerifier';
 
 /**
@@ -36,6 +36,7 @@ export interface CategoryMetric {
   hallucinationCount: number;
   avgLatencyMs: number;
   avgTtftMs: number;
+  avgTokens: number;
 }
 
 /**
@@ -49,6 +50,8 @@ export interface EvalRunSummary {
   hallucinationCount: number;
   avgLatencyMs: number;
   avgTtftMs: number; // Time to First Transcript chunk latency in ms
+  totalTokens: number; // Total token consumption across all cases
+  avgTokensPerCase: number; // Average tokens per evaluated test case
   toolPassCount: number;
   toolTotalCount: number;
   toolAccuracyPercent: number;
@@ -62,7 +65,7 @@ export interface EvalRunSummary {
  * 1. Loads context and AI-analyzes multimodal images.
  * 2. Assembles system instructions and boots Gemini Live session.
  * 3. Dispatches benchmark questions sequentially across categories.
- * 4. Measures TTFT (Time-to-First-Transcript chunk) and total turn latency.
+ * 4. Measures TTFT (Time-to-First-Transcript chunk), total latency, and token usage per case.
  * 5. Grades with VoiceEvalJudge and ToolCallVerifier (Gemini 3.7 Flash).
  */
 export class VoiceEvalRunner {
@@ -75,6 +78,40 @@ export class VoiceEvalRunner {
     this.client = new GoogleGenAI({ apiKey });
     this.judge = new VoiceEvalJudge(this.client, 'gemini-3.7-flash');
     this.toolVerifier = new ToolCallVerifier(this.client, 'gemini-3.7-flash');
+  }
+
+  /**
+   * Calculates or extracts live turn token metrics.
+   */
+  private async getLiveTurnTokens(
+    prompt: string,
+    answer: string,
+    liveUsage: { promptTokens: number; responseTokens: number; totalTokens: number } | null
+  ): Promise<{ promptTokens: number; responseTokens: number; totalTokens: number }> {
+    if (liveUsage && liveUsage.totalTokens > 0) {
+      return liveUsage;
+    }
+    try {
+      const [promptCount, answerCount] = await Promise.all([
+        this.client.models.countTokens({ model: 'gemini-2.5-flash', contents: prompt }),
+        this.client.models.countTokens({ model: 'gemini-2.5-flash', contents: answer || ' ' }),
+      ]);
+      const promptTokens = promptCount.totalTokens || Math.ceil(prompt.length / 4);
+      const responseTokens = answerCount.totalTokens || Math.ceil((answer || '').length / 4);
+      return {
+        promptTokens,
+        responseTokens,
+        totalTokens: promptTokens + responseTokens,
+      };
+    } catch {
+      const promptTokens = Math.max(1, Math.ceil(prompt.length / 4));
+      const responseTokens = Math.max(1, Math.ceil((answer || '').length / 4));
+      return {
+        promptTokens,
+        responseTokens,
+        totalTokens: promptTokens + responseTokens,
+      };
+    }
   }
 
   /**
@@ -153,6 +190,7 @@ export class VoiceEvalRunner {
       let currentStartTime = 0;
       let currentTtftMs = 0;
       let firstChunkReceived = false;
+      let turnLiveUsage: { promptTokens: number; responseTokens: number; totalTokens: number } | null = null;
       let turnResolver: ((result: { text: string; ttftMs: number; latencyMs: number }) => void) | null = null;
 
       this.session = await this.client.live.connect({
@@ -163,6 +201,15 @@ export class VoiceEvalRunner {
           },
           onmessage: async (message: LiveServerMessage) => {
             const serverContent = message.serverContent as any;
+            if ((message as any).usageMetadata) {
+              const u = (message as any).usageMetadata;
+              turnLiveUsage = {
+                promptTokens: u.promptTokenCount || 0,
+                responseTokens: u.responseTokenCount || 0,
+                totalTokens: u.totalTokenCount || 0,
+              };
+            }
+
             if (!serverContent) return;
 
             if (serverContent.outputTranscription?.text) {
@@ -216,6 +263,7 @@ export class VoiceEvalRunner {
           currentTranscription = '';
           firstChunkReceived = false;
           currentTtftMs = 0;
+          turnLiveUsage = null;
           currentStartTime = performance.now();
 
           const turnPromise = new Promise<{ text: string; ttftMs: number; latencyMs: number }>((resolve) => {
@@ -229,7 +277,7 @@ export class VoiceEvalRunner {
           const { text: spokenAnswer, ttftMs, latencyMs } = await turnPromise;
 
           callbacks.onStatusUpdate(`Grading answer for question ${i + 1} with LLM Judge (Gemini 3.7)...`);
-          const score = await this.judge.evaluateAnswer({
+          const judgeOutput = await this.judge.evaluateAnswer({
             question: q.question,
             category: q.category,
             answer: spokenAnswer,
@@ -239,6 +287,19 @@ export class VoiceEvalRunner {
             photoContexts: formattedPhotoContexts,
           });
 
+          const liveModelTokens = await this.getLiveTurnTokens(q.question, spokenAnswer, turnLiveUsage);
+          const judgeTokens = judgeOutput.judgeTokens;
+          const totalPrompt = liveModelTokens.promptTokens + (judgeTokens?.promptTokens || 0);
+          const totalResponse = liveModelTokens.responseTokens + (judgeTokens?.responseTokens || 0);
+
+          const tokenUsage: TokenUsageMetrics = {
+            promptTokens: totalPrompt,
+            responseTokens: totalResponse,
+            totalTokens: totalPrompt + totalResponse,
+            liveModelTokens,
+            judgeTokens,
+          };
+
           const result: QuestionEvalResult = {
             id: q.id,
             question: q.question,
@@ -246,9 +307,10 @@ export class VoiceEvalRunner {
             testType: 'qa',
             answer: spokenAnswer,
             expectedFacts: q.expectedFacts,
-            score,
+            score: judgeOutput.score,
             latencyMs,
             ttftMs,
+            tokenUsage,
           };
 
           results.push(result);
@@ -267,6 +329,7 @@ export class VoiceEvalRunner {
           currentTranscription = '';
           firstChunkReceived = false;
           currentTtftMs = 0;
+          turnLiveUsage = null;
           currentStartTime = performance.now();
 
           const turnPromise = new Promise<{ text: string; ttftMs: number; latencyMs: number }>((resolve) => {
@@ -299,6 +362,19 @@ export class VoiceEvalRunner {
             expectedKeywords: t.expectedKeywords,
           });
 
+          const liveModelTokens = await this.getLiveTurnTokens(promptWithContext, spokenAnswer, turnLiveUsage);
+          const judgeTokens = toolResult.judgeTokens;
+          const totalPrompt = liveModelTokens.promptTokens + (judgeTokens?.promptTokens || 0);
+          const totalResponse = liveModelTokens.responseTokens + (judgeTokens?.responseTokens || 0);
+
+          const tokenUsage: TokenUsageMetrics = {
+            promptTokens: totalPrompt,
+            responseTokens: totalResponse,
+            totalTokens: totalPrompt + totalResponse,
+            liveModelTokens,
+            judgeTokens,
+          };
+
           const result: QuestionEvalResult = {
             id: t.id,
             question: t.question,
@@ -320,6 +396,7 @@ export class VoiceEvalRunner {
             },
             latencyMs,
             ttftMs,
+            tokenUsage,
             toolResult,
           };
 
@@ -355,6 +432,8 @@ export class VoiceEvalRunner {
         hallucinationCount: 0,
         avgLatencyMs: 0,
         avgTtftMs: 0,
+        totalTokens: 0,
+        avgTokensPerCase: 0,
         toolPassCount: 0,
         toolTotalCount: 0,
         toolAccuracyPercent: 0,
@@ -382,6 +461,9 @@ export class VoiceEvalRunner {
     const totalTtft = results.reduce((acc, r) => acc + (r.ttftMs !== undefined ? r.ttftMs : r.latencyMs), 0);
     const avgTtftMs = Math.round(totalTtft / totalQuestions);
 
+    const totalTokens = results.reduce((acc, r) => acc + (r.tokenUsage?.totalTokens || 0), 0);
+    const avgTokensPerCase = Math.round(totalTokens / totalQuestions);
+
     // Compute granular per-category breakdown
     const categoryBreakdown: Record<string, CategoryMetric> = {};
     for (const r of results) {
@@ -396,6 +478,7 @@ export class VoiceEvalRunner {
           hallucinationCount: 0,
           avgLatencyMs: 0,
           avgTtftMs: 0,
+          avgTokens: 0,
         };
       }
       categoryBreakdown[cat].total += 1;
@@ -419,6 +502,9 @@ export class VoiceEvalRunner {
 
       const catTtftTotal = catResults.reduce((acc, r) => acc + (r.ttftMs !== undefined ? r.ttftMs : r.latencyMs), 0);
       metric.avgTtftMs = Math.round(catTtftTotal / metric.total);
+
+      const catTokensTotal = catResults.reduce((acc, r) => acc + (r.tokenUsage?.totalTokens || 0), 0);
+      metric.avgTokens = Math.round(catTokensTotal / metric.total);
     }
 
     return {
@@ -429,6 +515,8 @@ export class VoiceEvalRunner {
       hallucinationCount,
       avgLatencyMs,
       avgTtftMs,
+      totalTokens,
+      avgTokensPerCase,
       toolPassCount,
       toolTotalCount,
       toolAccuracyPercent,

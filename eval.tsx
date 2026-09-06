@@ -186,10 +186,10 @@ export class GdmEval extends LitElement {
       box-shadow: none;
     }
 
-    /* Overall Summary Grid - 5 KPIs including TTFT */
+    /* Overall Summary Grid - 6 KPIs including TTFT and Token Usage */
     .summary-grid {
       display: grid;
-      grid-template-columns: repeat(5, 1fr);
+      grid-template-columns: repeat(6, 1fr);
       gap: 6px;
       margin-top: 14px;
       margin-bottom: 12px;
@@ -540,6 +540,33 @@ export class GdmEval extends LitElement {
       padding-left: 18px;
       color: #f87171;
     }
+
+    .token-breakdown-box {
+      margin-top: 6px;
+      margin-bottom: 6px;
+      padding: 8px 10px;
+      border-radius: 6px;
+      background: rgba(167, 139, 250, 0.05);
+      border: 1px solid rgba(167, 139, 250, 0.15);
+      font-size: 11px;
+    }
+
+    .token-title {
+      color: #c4b5fd;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .token-sub-details {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #9ca3af;
+      font-size: 10px;
+      margin-top: 3px;
+    }
   `;
 
   private getCategoryClass(category: string): string {
@@ -709,7 +736,7 @@ export class GdmEval extends LitElement {
 
               ${this.summary
                 ? html`
-                    <!-- Executive KPI Cards with Streaming TTFT Latency -->
+                    <!-- Executive KPI Cards with Streaming TTFT Latency and Token Metrics -->
                     <div class="summary-grid">
                       <div class="summary-card">
                         <div
@@ -748,6 +775,17 @@ export class GdmEval extends LitElement {
                       <div class="summary-card">
                         <div class="summary-value">${(this.summary.avgLatencyMs / 1000).toFixed(1)}s</div>
                         <div class="summary-label">Avg Turn</div>
+                      </div>
+
+                      <div class="summary-card">
+                        <div class="summary-value" style="color: #c4b5fd;">
+                          ${this.summary.totalTokens >= 1000
+                            ? `${(this.summary.totalTokens / 1000).toFixed(1)}k`
+                            : this.summary.totalTokens}
+                        </div>
+                        <div class="summary-label">
+                          Tokens (~${this.summary.avgTokensPerCase}/case)
+                        </div>
                       </div>
                     </div>
 
@@ -799,6 +837,7 @@ export class GdmEval extends LitElement {
                                       <span><strong>${c.passed}/${c.total}</strong> passed</span>
                                       <span>Factuality: <strong>${c.avgFactuality}/5</strong></span>
                                       <span>⚡ TTFT: <strong>${c.avgTtftMs}ms</strong></span>
+                                      <span>🪙 Tokens: <strong>~${c.avgTokens.toLocaleString()}</strong></span>
                                       <span>
                                         Hallucinations:
                                         <strong style="color: ${c.hallucinationCount > 0 ? '#f87171' : '#34d399'}">
@@ -861,6 +900,13 @@ export class GdmEval extends LitElement {
                                 <span class="latency-pill" title="Total Turn Duration">
                                   ⏱️ Total: <strong>${r.latencyMs}ms</strong>
                                 </span>
+                                <span
+                                  class="latency-pill"
+                                  style="border-color: rgba(167, 139, 250, 0.3); color: #c4b5fd;"
+                                  title="Prompt: ${r.tokenUsage?.promptTokens ?? 0} | Generation: ${r.tokenUsage?.responseTokens ?? 0}"
+                                >
+                                  🪙 <strong>${r.tokenUsage ? r.tokenUsage.totalTokens.toLocaleString() : '—'}</strong> tokens
+                                </span>
                                 <span class="pass-tag ${r.score.isPass ? 'pass' : 'fail'}">
                                   ${r.score.isPass ? '✓ PASS' : '✗ FAIL'}
                                 </span>
@@ -873,6 +919,29 @@ export class GdmEval extends LitElement {
                               <strong>Spoken Response:</strong><br />
                               ${r.answer || '(No speech transcribed)'}
                             </div>
+
+                            ${r.tokenUsage
+                              ? html`
+                                  <div class="token-breakdown-box">
+                                    <div class="token-title">
+                                      🪙 Tokens:
+                                      <strong>${r.tokenUsage.totalTokens.toLocaleString()} total</strong>
+                                      <span style="font-weight: normal; color: #9ca3af; font-size: 11px;">
+                                        (Prompt: ${r.tokenUsage.promptTokens.toLocaleString()} | Generation: ${r.tokenUsage.responseTokens.toLocaleString()})
+                                      </span>
+                                    </div>
+                                    ${r.tokenUsage.liveModelTokens && r.tokenUsage.judgeTokens
+                                      ? html`
+                                          <div class="token-sub-details">
+                                            <span>Voice Agent: <strong>${r.tokenUsage.liveModelTokens.totalTokens.toLocaleString()}</strong></span>
+                                            <span>•</span>
+                                            <span>Judge Model: <strong>${r.tokenUsage.judgeTokens.totalTokens.toLocaleString()}</strong></span>
+                                          </div>
+                                        `
+                                      : ''}
+                                  </div>
+                                `
+                              : ''}
 
                             ${r.toolResult
                               ? html`
